@@ -1,0 +1,15 @@
+# Git ignore file
+
+# Python stuff
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# SVN junk
+.svn/
+
+# ctags files
+tags
+
+# database files
+*.db
