@@ -12,3 +12,7 @@ class Spectrum(object):
 
     def __getitem__(self, key):
         return self.meta[key]
+
+    @property
+    def phase(self):
+        return self.meta['salt2.phase']
