@@ -21,8 +21,17 @@ class Supernova(object):
 
         for exposure, exposure_data in spectra_dict.iteritems():
             spectrum = IdrSpectrum(idr_directory, exposure_data)
-            if spectrum is not None:
-                all_spectra.append(spectrum)
+
+            if spectrum is None:
+                continue
+
+            # Require both channels
+            spec_meta = spectrum.meta
+            if (('idr.spec_R' not in spec_meta)
+                    or ('idr.spec_B' not in spec_meta)):
+                continue
+
+            all_spectra.append(spectrum)
 
         all_spectra = sorted(all_spectra, key=lambda spectrum: spectrum.phase)
 
