@@ -21,6 +21,10 @@ class BaseSpectrum(object):
         return self.meta['salt2.phase']
 
     @property
+    def target(self):
+        return self.meta['target.name']
+
+    @property
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
@@ -89,10 +93,10 @@ class BaseSpectrum(object):
             b = (1.41338*y + 2.28305*y**2 + 1.07233*y**3 - 5.38434*y**4 -
                  0.62251*y**5 + 5.30260*y**6 - 2.09002*y**7)
             reddening = (a + b/rv) * rv * ebv
-            color_law = 10 ** (-0.4 * reddening)
+            scale = 10 ** (-0.4 * reddening)
 
-        flux = self.flux * color_law
-        fluxvar = self.fluxvar * color_law * color_law
+        flux = self.flux * scale
+        fluxvar = self.fluxvar * scale * scale
 
         modification = "Applied color law %s with R_V=%.2f, E(B-V)=%.3f" % (
             color_law, rv, ebv

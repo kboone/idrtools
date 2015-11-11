@@ -103,3 +103,18 @@ class Dataset(object):
                 all_keys = all_keys.union(sn.keys())
 
         return all_keys
+
+    def get_nearest_spectra(self, phase, max_diff=None):
+        """Return the spectrum for each supernova closest to the given phase
+
+        If the nearest spectrum for a supernova is off by more than max_diff,
+        then it is omitted from the final sample.
+        """
+        all_spectra = []
+
+        for sn in self.supernovae:
+            spectrum = sn.get_nearest_spectrum(phase, max_diff)
+            if spectrum is not None:
+                all_spectra.append(spectrum)
+
+        return all_spectra
