@@ -1,6 +1,6 @@
 import numpy as np
 
-from .spectrum import Spectrum
+from .spectrum import IdrSpectrum
 from .tools import InvalidMetaDataException
 
 
@@ -20,7 +20,7 @@ class Supernova(object):
         all_spectra = []
 
         for exposure, exposure_data in spectra_dict.iteritems():
-            spectrum = Spectrum(idr_directory, exposure_data)
+            spectrum = IdrSpectrum(idr_directory, exposure_data)
             if spectrum is not None:
                 all_spectra.append(spectrum)
 
