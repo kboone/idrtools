@@ -1,6 +1,6 @@
 import numpy as np
 
-from .spectrum import IdrSpectrum
+from .spectrum import IdrSpectrum, Spectrum
 from .tools import InvalidMetaDataException
 
 
@@ -35,7 +35,7 @@ class Supernova(object):
 
         all_spectra = sorted(all_spectra, key=lambda spectrum: spectrum.phase)
 
-        self.spectra = all_spectra
+        self.spectra = np.array(all_spectra)
 
     def __str__(self):
         return self.meta['target.name']
@@ -74,3 +74,35 @@ class Supernova(object):
             return None
 
         return self.spectra[min_idx]
+
+    def get_spectra_in_range(self, min_phase, max_phase):
+        """Return a list of spectra within a phase range"""
+        phases = self.phases
+
+        use_idx = (phases < max_phase) & (phases > min_phase)
+
+        return self.spectra[use_idx]
+
+    def get_next_spectrum(self, spectrum, backwards=False):
+        """Return the spectrum after a given spectrum.
+
+        spectrum can be either a Spectrum object or a phase
+        """
+        if isinstance(spectrum, Spectrum):
+            phase = spectrum.phase
+        else:
+            phase = spectrum
+
+        min_offset = None
+        next_spectrum = None
+
+        for other_spectrum in self.spectra:
+            if ((backwards and (other_spectrum.phase < phase))
+                    or (not backwards and (other_spectrum.phase > phase))):
+                offset = np.abs(other_spectrum.phase - phase)
+
+                if (min_offset is None) or (offset < min_offset):
+                    min_offset = offset
+                    next_spectrum = other_spectrum
+
+        return next_spectrum

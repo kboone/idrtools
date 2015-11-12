@@ -2,7 +2,7 @@ from astropy.io import fits
 import numpy as np
 
 
-class BaseSpectrum(object):
+class Spectrum(object):
     def __init__(self, idr_directory, meta):
         self.idr_directory = idr_directory
         self.meta = meta
@@ -28,7 +28,7 @@ class BaseSpectrum(object):
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
-    def bin_by_velocity(self, min_wave=3300, max_wave=8600, velocity=1000):
+    def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600):
         """Bin the spectrum in velocity/log-wavelength space
 
         min_wave and max_wave are in angstroms, velocity is in km/s
@@ -149,7 +149,7 @@ class BaseSpectrum(object):
         )
 
 
-class IdrSpectrum(BaseSpectrum):
+class IdrSpectrum(Spectrum):
     def __init__(self, idr_directory, meta):
         super(IdrSpectrum, self).__init__(idr_directory, meta)
 
@@ -195,7 +195,7 @@ class IdrSpectrum(BaseSpectrum):
         return self._fluxvar
 
 
-class ModifiedSpectrum(BaseSpectrum):
+class ModifiedSpectrum(Spectrum):
     def __init__(self, idr_directory, meta, wave, flux, fluxvar=None,
                  modifications=[]):
         super(ModifiedSpectrum, self).__init__(idr_directory, meta)
