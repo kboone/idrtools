@@ -118,3 +118,11 @@ class Dataset(object):
                 all_spectra.append(spectrum)
 
         return all_spectra
+
+    def merge_metadata(self, pickle_path):
+        """Merge the metadata from another pickle file"""
+        new_meta = pickle.load(open(pickle_path))
+
+        for sn, sn_dict in new_meta.iteritems():
+            if sn in self.meta:
+                self.meta.update(sn_dict)
