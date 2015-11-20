@@ -20,7 +20,7 @@ class Supernova(object):
         all_spectra = []
 
         for exposure, exposure_data in spectra_dict.iteritems():
-            spectrum = IdrSpectrum(idr_directory, exposure_data)
+            spectrum = IdrSpectrum(idr_directory, exposure_data, self)
 
             if spectrum is None:
                 continue
@@ -37,11 +37,15 @@ class Supernova(object):
 
         self.spectra = np.array(all_spectra)
 
-    def __str__(self):
+    @property
+    def name(self):
         return self.meta['target.name']
 
+    def __str__(self):
+        return self.name
+
     def __repr__(self):
-        return 'Supernova(name="%s")' % (str(self),)
+        return 'Supernova(name="%s")' % (self.name,)
 
     def __getitem__(self, key):
         return self.meta[key]
