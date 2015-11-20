@@ -3,9 +3,10 @@ import numpy as np
 
 
 class Spectrum(object):
-    def __init__(self, idr_directory, meta):
+    def __init__(self, idr_directory, meta, supernova=None):
         self.idr_directory = idr_directory
         self.meta = meta
+        self.supernova = supernova
 
     def __str__(self):
         return self.meta['idr.prefix']
@@ -109,7 +110,8 @@ class Spectrum(object):
         )
 
     def get_modified_spectrum(self, modification, idr_directory=None,
-                              meta=None, wave=None, flux=None, fluxvar=None):
+                              meta=None, wave=None, flux=None, fluxvar=None,
+                              supernova=None):
         """Get a modified version of the current spectrum with new values.
 
         modification is a string indicating what modification was done.
@@ -132,6 +134,9 @@ class Spectrum(object):
         if fluxvar is None:
             fluxvar = self.fluxvar
 
+        if supernova is None:
+            supernova = self.supernova
+
         try:
             modifications = self.modifications
         except AttributeError:
@@ -145,13 +150,14 @@ class Spectrum(object):
             wave,
             flux,
             fluxvar,
+            supernova,
             modifications
         )
 
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta):
-        super(IdrSpectrum, self).__init__(idr_directory, meta)
+    def __init__(self, idr_directory, meta, supernova):
+        super(IdrSpectrum, self).__init__(idr_directory, meta, supernova)
 
         # Lazy load the wave and flux when we actually use them. This makes
         # things a lot faster.
@@ -197,8 +203,8 @@ class IdrSpectrum(Spectrum):
 
 class ModifiedSpectrum(Spectrum):
     def __init__(self, idr_directory, meta, wave, flux, fluxvar=None,
-                 modifications=[]):
-        super(ModifiedSpectrum, self).__init__(idr_directory, meta)
+                 supernova=None, modifications=[]):
+        super(ModifiedSpectrum, self).__init__(idr_directory, meta, supernova)
 
         self.wave = wave
         self.flux = flux
