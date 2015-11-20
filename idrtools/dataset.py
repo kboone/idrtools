@@ -125,4 +125,22 @@ class Dataset(object):
 
         for sn, sn_dict in new_meta.iteritems():
             if sn in self.meta:
-                self.meta.update(sn_dict)
+                self.meta[sn].update(sn_dict)
+
+    def cut_supernova_list(self, sn_list, intersection=False):
+        """Cut the dataset to a list of supernovae.
+
+        If intersection is True, then supernovae in the list are kept.
+        Otherwise, supernovae in the list are rejected.
+        """
+        sn_list = np.genfromtxt(sn_list, dtype=None)
+
+        filter_supernovae = []
+
+        for sn in self.supernovae:
+            in_list = sn.name in sn_list
+            if ((intersection and in_list)
+                    or (not intersection and not in_list)):
+                filter_supernovae.append(sn)
+
+        return Dataset(self.idr_directory, filter_supernovae, self.meta)
