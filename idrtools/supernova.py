@@ -1,4 +1,5 @@
 import numpy as np
+from matplotlib import pyplot as plt
 
 from .spectrum import IdrSpectrum, Spectrum
 from .tools import InvalidMetaDataException
@@ -123,3 +124,34 @@ class Supernova(object):
                     next_spectrum = other_spectrum
 
         return next_spectrum
+
+    def plot(self, show_error=False, **kwargs):
+        """Plot the spectrum.
+
+        If show_error is True, an error snake is also plotted.
+
+        Any kwargs are passed to plt.plot.
+        """
+        spectra = self.spectra
+
+        min_flux = np.min([i.flux for i in spectra])
+        max_flux = np.max([i.flux for i in spectra])
+        min_wave = np.min([i.wave for i in spectra])
+        max_wave = np.max([i.wave for i in spectra])
+
+        offset_scale = 0.5*(max_flux - min_flux)
+
+        for i, spectrum in enumerate(self.spectra):
+            spectrum.plot(
+                offset=i*offset_scale
+            )
+            plt.text(
+                1.01*max_wave,
+                (i+0.1)*offset_scale,
+                '%.2f days' % spectrum.phase
+            )
+            plt.xlim(min_wave, 1.15*max_wave)
+
+        plt.xlabel('Wavelength')
+        plt.ylabel('Flux + offset')
+        plt.title(self)

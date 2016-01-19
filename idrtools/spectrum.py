@@ -1,4 +1,5 @@
 from astropy.io import fits
+from matplotlib import pyplot as plt
 import numpy as np
 
 
@@ -187,6 +188,33 @@ class Spectrum(object):
             supernova,
             modifications
         )
+
+    def plot(self, show_error=False, offset=0., **kwargs):
+        """Plot the spectrum.
+
+        If show_error is True, an error snake is also plotted.
+        If offset is non-zero, then the offset is added to the flux.
+
+        Any kwargs are passed to plt.plot"""
+
+        wave = self.wave
+        flux = self.flux + offset
+        plt.plot(wave, flux, **kwargs)
+
+        if show_error:
+            err = self.fluxerr
+
+            plt.fill_between(
+                wave,
+                flux - err,
+                flux + err,
+                alpha=0.2,
+                **kwargs
+            )
+
+        plt.xlabel('Wavelength')
+        plt.ylabel('Flux')
+        plt.title(self)
 
 
 class IdrSpectrum(Spectrum):
