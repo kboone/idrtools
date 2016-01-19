@@ -31,6 +31,31 @@ def cum_nmad(x):
     return out
 
 
+def apply_windowed_function(x, func, window_frac=0.05):
+    window_size = int(len(x) * window_frac)
+    out = np.zeros(len(x))
+    for i in range(len(x)):
+        min_index = i - window_size / 2.
+        if min_index < 0:
+            min_index = 0
+
+        max_index = i + window_size / 2.
+        if max_index > len(x):
+            max_index = len(x)
+
+        out[i] = func(x[min_index:max_index])
+
+    return out
+
+
+def windowed_nmad(x, window_frac=0.05):
+    return apply_windowed_function(x, nmad, window_frac)
+
+
+def windowed_rms(x, window_frac=0.05):
+    return apply_windowed_function(x, rms, window_frac)
+
+
 def fit_global_values(id_1, id_2, diffs, return_fitted_diffs=False):
     """Perform a global fit on a set of difference values from a datset."""
     all_vars = np.unique([id_1, id_2])
@@ -73,7 +98,7 @@ def fit_global_values(id_1, id_2, diffs, return_fitted_diffs=False):
 
     fitted_vals = [minuit.values[minuit.pos2var[i]] for i in
                    range(len(all_vars)-1)]
-    fitted_vals = [-np.sum(fitted_vals)] + fitted_vals
+    fitted_vals = np.array([-np.sum(fitted_vals)] + fitted_vals)
 
     if return_fitted_diffs:
         id_1_vals = np.array([fitted_vals[var_dict[var]] for var in id_1])
