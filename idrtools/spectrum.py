@@ -39,9 +39,17 @@ class Spectrum(object):
             return self.meta['idrtools.usable']
         except KeyError:
             # If the key isn't there, then the spectrum is usable by default.
-            # It is best to only use this flag if the spectrum isn't usable, as
-            # that makes merging metadata easier.
+            # I only set this flag if the spectrum is not usable which makes
+            # merging metadata a lot easier (merging sets not usable data in
+            # either set as not usable).
             return True
+
+    @usable.setter
+    def usable(self, usable):
+        if usable:
+            del self.meta['idrtools.usable']
+        else:
+            self.meta['idrtools.usable'] = False
 
     @property
     def phase(self):
