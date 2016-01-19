@@ -5,7 +5,7 @@ import numpy as np
 class Spectrum(object):
     def __init__(self, idr_directory, meta, supernova=None):
         self.idr_directory = idr_directory
-        self.meta = meta
+        self.meta = meta.copy()
         self.supernova = supernova
 
     def __str__(self):
@@ -32,6 +32,16 @@ class Spectrum(object):
     def __ge__(self, other):
         """Order by the string name"""
         return str(self) >= str(other)
+
+    @property
+    def usable(self):
+        try:
+            return self.meta['idrtools.usable']
+        except KeyError:
+            # If the key isn't there, then the spectrum is usable by default.
+            # It is best to only use this flag if the spectrum isn't usable, as
+            # that makes merging metadata easier.
+            return True
 
     @property
     def phase(self):
@@ -180,6 +190,15 @@ class IdrSpectrum(Spectrum):
         self._wave = None
         self._flux = None
         self._fluxvar = None
+
+        # Check if the spectrum is good or not. We drop everything that is
+        # flagged in the IDR for now.
+        try:
+            if (self.meta['procB.Quality'] != 1
+                    or self.meta['procR.Quality'] != 1):
+                self.meta['idrtools.usable'] = False
+        except KeyError:
+            pass
 
     def do_lazyload(self):
         if self._wave is not None:

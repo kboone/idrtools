@@ -35,7 +35,7 @@ class Supernova(object):
 
         all_spectra = sorted(all_spectra, key=lambda spectrum: spectrum.phase)
 
-        self.spectra = np.array(all_spectra)
+        self.all_spectra = np.array(all_spectra)
 
     @property
     def name(self):
@@ -57,6 +57,19 @@ class Supernova(object):
     def keys(self):
         """Return a list of keys for the meta"""
         return self.meta.keys()
+
+    @property
+    def spectra(self):
+        """Return the list of spectra that are usable for this supernova.
+
+        Spectra that have been flagged an unusable will not be in this list.
+        """
+        return np.array([i for i in self.all_spectra if i.usable])
+
+    @property
+    def unusable_spectra(self):
+        """Return the list of spectra that are unusable for this supernova."""
+        return np.array([i for i in self.all_spectra if not i.usable])
 
     @property
     def phases(self):
