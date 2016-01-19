@@ -17,6 +17,22 @@ class Spectrum(object):
     def __getitem__(self, key):
         return self.meta[key]
 
+    def __lt__(self, other):
+        """Order by the string name"""
+        return str(self) < str(other)
+
+    def __le__(self, other):
+        """Order by the string name"""
+        return str(self) <= str(other)
+
+    def __gt__(self, other):
+        """Order by the string name"""
+        return str(self) > str(other)
+
+    def __ge__(self, other):
+        """Order by the string name"""
+        return str(self) >= str(other)
+
     @property
     def phase(self):
         return self.meta['salt2.phase']
