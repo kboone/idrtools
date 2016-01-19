@@ -212,7 +212,7 @@ class Spectrum(object):
                 **kwargs
             )
 
-        plt.xlabel('Wavelength')
+        plt.xlabel('Restframe wavelength ($\\AA$)')
         plt.ylabel('Flux')
         plt.title(self)
 

@@ -152,6 +152,6 @@ class Supernova(object):
             )
             plt.xlim(min_wave, 1.15*max_wave)
 
-        plt.xlabel('Wavelength')
+        plt.xlabel('Restframe wavelength ($\\AA$)')
         plt.ylabel('Flux + offset')
         plt.title(self)
