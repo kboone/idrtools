@@ -32,14 +32,14 @@ def cum_nmad(x):
 
 
 def apply_windowed_function(x, func, window_frac=0.05):
-    window_size = int(len(x) * window_frac)
+    window_size = int(np.around(len(x) * window_frac / 2.))
     out = np.zeros(len(x))
     for i in range(len(x)):
-        min_index = i - window_size / 2.
+        min_index = i - window_size
         if min_index < 0:
             min_index = 0
 
-        max_index = i + window_size / 2.
+        max_index = i + window_size
         if max_index > len(x):
             max_index = len(x)
 
