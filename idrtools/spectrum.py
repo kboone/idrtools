@@ -144,6 +144,18 @@ class Spectrum(object):
             fluxvar=fluxvar
         )
 
+    def apply_scale(self, scale):
+        flux = self.flux * scale
+        fluxvar = self.fluxvar * scale * scale
+
+        modification = "Applied scale of %s" % scale
+
+        return self.get_modified_spectrum(
+            modification,
+            flux=flux,
+            fluxvar=fluxvar
+        )
+
     def get_modified_spectrum(self, modification, idr_directory=None,
                               meta=None, wave=None, flux=None, fluxvar=None,
                               supernova=None):
