@@ -56,9 +56,15 @@ def windowed_rms(x, window_frac=0.05):
     return apply_windowed_function(x, rms, window_frac)
 
 
-def fit_global_values(id_1, id_2, diffs, return_fitted_diffs=False):
-    """Perform a global fit on a set of difference values from a datset."""
-    all_vars = np.unique([id_1, id_2])
+def fit_global_values(id_1, id_2, diffs, weights=None,
+                      return_fitted_diffs=False):
+    """Perform a global fit on a set of difference values from a datset.
+
+    id_1 and id_2 should be a list of the objects in each of the pairs. diffs
+    is a set of differences to target. weights gives the weights to use for
+    each pairing in the fit.
+    """
+    all_vars = np.unique(np.concatenate([id_1, id_2]))
     var_dict = {var: i for i, var in enumerate(all_vars)}
 
     def global_fit_dist(*vals):
@@ -71,7 +77,12 @@ def fit_global_values(id_1, id_2, diffs, return_fitted_diffs=False):
         id_2_vals = np.array([full_vals[var_dict[var]] for var in id_2])
         global_fit_vals = id_1_vals - id_2_vals
 
-        chisq = ((diffs - global_fit_vals)**2).sum()
+        fit_errs = (diffs - global_fit_vals)**2
+
+        if weights is not None:
+            fit_errs *= weights
+
+        chisq = fit_errs.sum()
 
         return chisq
 
