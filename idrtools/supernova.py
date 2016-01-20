@@ -51,6 +51,22 @@ class Supernova(object):
     def __getitem__(self, key):
         return self.meta[key]
 
+    def __lt__(self, other):
+        """Order by the string name"""
+        return str(self) < str(other)
+
+    def __le__(self, other):
+        """Order by the string name"""
+        return str(self) <= str(other)
+
+    def __gt__(self, other):
+        """Order by the string name"""
+        return str(self) > str(other)
+
+    def __ge__(self, other):
+        """Order by the string name"""
+        return str(self) >= str(other)
+
     @property
     def subset(self):
         return self.meta['idr.subset']
@@ -134,12 +150,11 @@ class Supernova(object):
         """
         spectra = self.spectra
 
-        min_flux = np.min([i.flux for i in spectra])
-        max_flux = np.max([i.flux for i in spectra])
         min_wave = np.min([i.wave for i in spectra])
         max_wave = np.max([i.wave for i in spectra])
 
-        offset_scale = 0.5*(max_flux - min_flux)
+        all_flux = [i.flux for i in spectra]
+        offset_scale = np.percentile(np.abs(all_flux), 80) * 2.
 
         for i, spectrum in enumerate(self.spectra):
             spectrum.plot(

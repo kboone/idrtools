@@ -10,7 +10,7 @@ from .tools import IdrToolsException, InvalidMetaDataException
 class Dataset(object):
     def __init__(self, idr_directory, supernovae, meta):
         self.idr_directory = idr_directory
-        self.supernovae = supernovae
+        self.supernovae = sorted(supernovae)
         self.meta = meta
 
     @classmethod
