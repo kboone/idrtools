@@ -117,7 +117,17 @@ class Dataset(object):
             if spectrum is not None:
                 all_spectra.append(spectrum)
 
-        return all_spectra
+        return np.array(all_spectra)
+
+    def get_spectra_in_range(self, min_phase, max_phase):
+        """Return a list of spectra within a phase range"""
+        all_spectra = []
+
+        for sn in self.supernovae:
+            spectra = sn.get_spectra_in_range(min_phase, max_phase)
+            all_spectra.extend(spectra)
+
+        return np.array(all_spectra)
 
     def merge_metadata(self, pickle_path):
         """Merge the metadata from another pickle file"""
