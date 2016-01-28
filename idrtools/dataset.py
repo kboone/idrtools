@@ -154,3 +154,25 @@ class Dataset(object):
                 filter_supernovae.append(sn)
 
         return Dataset(self.idr_directory, filter_supernovae, self.meta)
+
+    def get_supernova(self, name):
+        """Find a supernova that matches the given name.
+
+        name can be the full name or a subset. If more than one item is
+        matched, an Exception will be raised
+        """
+
+        name = name.lower()
+
+        result = None
+
+        for sn in self.supernovae:
+            if name in str(sn).lower():
+                if result is not None:
+                    raise IdrToolsException(
+                        "More than one SN matches %s!" % name
+                    )
+
+                result = sn
+
+        return result
