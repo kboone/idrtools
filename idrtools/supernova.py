@@ -98,6 +98,9 @@ class Supernova(object):
         If the nearest spectrum is off by more than max_diff, then None is
         returned
         """
+        if len(self.spectra) == 0:
+            return None
+
         phases = self.phases
         diff = np.abs(phases - phase)
 
