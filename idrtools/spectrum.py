@@ -156,6 +156,21 @@ class Spectrum(object):
             fluxvar=fluxvar
         )
 
+    def add_noise(self, fraction):
+        noise_std = fraction*self.flux
+        noise = noise_std * np.random.randn(len(self.wave))
+
+        flux = self.flux + noise
+        fluxvar = self.fluxvar + noise_std**2
+
+        modification = "Applied noise of %s" % fraction
+
+        return self.get_modified_spectrum(
+            modification,
+            flux=flux,
+            fluxvar=fluxvar
+        )
+
     def get_modified_spectrum(self, modification, idr_directory=None,
                               meta=None, wave=None, flux=None, fluxvar=None,
                               supernova=None):
