@@ -152,6 +152,7 @@ class Supernova(object):
         Any kwargs are passed to plt.plot.
         """
         spectra = self.spectra
+        spectra = [i.bin_by_velocity(2000) for i in spectra]
 
         min_wave = np.min([i.wave for i in spectra])
         max_wave = np.max([i.wave for i in spectra])

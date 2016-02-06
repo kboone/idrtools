@@ -64,27 +64,15 @@ class Spectrum(object):
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
-    def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600):
-        """Bin the spectrum in velocity/log-wavelength space
+    def apply_binning(self, bin_edges, modification=None):
+        """Bin the spectrum with the given bin edges.
 
-        min_wave and max_wave are in angstroms, velocity is in km/s
-
-        I don't do interpolation here, I just group by bin. This should be ok,
-        and should make our bins more independent than interpolation, which is
-        probably a good thing. The output is in units of erg/s/cm2/A
+        Note that the number of bins will be equal to len(bin_edges) - 1.
         """
         wave = self.wave
         flux = self.flux
         fluxvar = self.fluxvar
 
-        # Find the right spacing for those bin edges. We get as close as we can
-        # to the desired velocity.
-        n_bins = int(round(
-            np.log10(float(max_wave) / min_wave)
-            / np.log10(1 + velocity/3.0e5)
-            + 1
-        ))
-        bin_edges = np.logspace(np.log10(min_wave), np.log10(max_wave), n_bins)
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
         # bin_widths = (bin_edges[1:] - bin_edges[:-1])
         new_wave = np.around(bin_centers)
@@ -110,9 +98,10 @@ class Spectrum(object):
         binned_flux /= bin_counts
         binned_fluxvar /= (bin_counts * bin_counts)
 
-        modification = "Binned to %.0f km/s in range [%.0f, %.0f]" % (
-            velocity, min_wave, max_wave
-        )
+        if modification is None:
+            modification = "Rebinned to %d bins in range [%.0f, %.0f]" % (
+                len(bin_centers), np.min(bin_edges), np.max(bin_edges)
+            )
 
         return self.get_modified_spectrum(
             modification,
@@ -120,6 +109,30 @@ class Spectrum(object):
             flux=binned_flux,
             fluxvar=binned_fluxvar
         )
+
+    def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600):
+        """Bin the spectrum in velocity/log-wavelength space
+
+        min_wave and max_wave are in angstroms, velocity is in km/s
+
+        I don't do interpolation here, I just group by bin. This should be ok,
+        and should make our bins more independent than interpolation, which is
+        probably a good thing. The output is in units of erg/s/cm2/A
+        """
+        # Find the right spacing for those bin edges. We get as close as we can
+        # to the desired velocity.
+        n_bins = int(round(
+            np.log10(float(max_wave) / min_wave)
+            / np.log10(1 + velocity/3.0e5)
+            + 1
+        ))
+        bin_edges = np.logspace(np.log10(min_wave), np.log10(max_wave), n_bins)
+
+        modification = "Binned to %.0f km/s in range [%.0f, %.0f]" % (
+            velocity, min_wave, max_wave
+        )
+
+        return self.apply_binning(bin_edges, modification)
 
     def apply_reddening(self, rv, ebv, color_law='CCM'):
         if color_law == 'CCM':
@@ -157,13 +170,18 @@ class Spectrum(object):
         )
 
     def add_noise(self, fraction):
+        """Add noise to a spectrum
+
+        Fraction can be either a single number or a vector with the same length
+        as wave.
+        """
         noise_std = fraction*self.flux
         noise = noise_std * np.random.randn(len(self.wave))
 
         flux = self.flux + noise
         fluxvar = self.fluxvar + noise_std**2
 
-        modification = "Applied noise of %s" % fraction
+        modification = "Applied noise of %s" % np.median(fraction)
 
         return self.get_modified_spectrum(
             modification,
