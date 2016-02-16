@@ -222,7 +222,8 @@ class Spectrum(object):
         except AttributeError:
             modifications = []
 
-        modifications.append(modification)
+        # Make a copy
+        modifications = modifications + [modification]
 
         return ModifiedSpectrum(
             idr_directory,
