@@ -15,7 +15,8 @@ class Dataset(object):
 
     @classmethod
     def from_idr(cls, idr_directory):
-        idr_meta = pickle.load(open('%s/META.pkl' % (idr_directory,)))
+        with open('%s/META.pkl' % (idr_directory,)) as idr_file:
+            idr_meta = pickle.load(idr_file)
 
         all_supernovae = []
 
@@ -131,7 +132,8 @@ class Dataset(object):
 
     def merge_metadata(self, pickle_path):
         """Merge the metadata from another pickle file"""
-        new_meta = pickle.load(open(pickle_path))
+        with open(pickle_path) as pickle_file:
+            new_meta = pickle.load(pickle_file)
 
         for sn, sn_dict in new_meta.iteritems():
             if sn in self.meta:
