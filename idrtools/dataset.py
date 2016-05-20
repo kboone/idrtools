@@ -14,7 +14,7 @@ class Dataset(object):
         self.meta = meta
 
     @classmethod
-    def from_idr(cls, idr_directory):
+    def from_idr(cls, idr_directory, restframe=True):
         with open('%s/META.pkl' % (idr_directory,)) as idr_file:
             idr_meta = pickle.load(idr_file)
 
@@ -22,7 +22,8 @@ class Dataset(object):
 
         for sn_name, sn_meta in idr_meta.iteritems():
             try:
-                supernova = Supernova(idr_directory, sn_meta)
+                supernova = Supernova(idr_directory, sn_meta,
+                                      restframe=restframe)
                 all_supernovae.append(supernova)
             except InvalidMetaDataException:
                 # The IDR contains weird entries sometimes (eg: a key of

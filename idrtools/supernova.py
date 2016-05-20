@@ -6,7 +6,7 @@ from .tools import InvalidMetaDataException
 
 
 class Supernova(object):
-    def __init__(self, idr_directory, meta):
+    def __init__(self, idr_directory, meta, restframe=True):
         self.idr_directory = idr_directory
         self.meta = meta
 
@@ -21,7 +21,8 @@ class Supernova(object):
         all_spectra = []
 
         for exposure, exposure_data in spectra_dict.iteritems():
-            spectrum = IdrSpectrum(idr_directory, exposure_data, self)
+            spectrum = IdrSpectrum(idr_directory, exposure_data, self,
+                                   restframe=restframe)
 
             if spectrum is None:
                 continue

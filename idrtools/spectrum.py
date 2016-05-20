@@ -54,7 +54,10 @@ class Spectrum(object):
 
     @property
     def phase(self):
-        return self.meta['salt2.phase']
+        if 'salt2.phase' in self.meta:
+            return self.meta['salt2.phase']
+        else:
+            return self.meta['qmagn.phase']
 
     @property
     def target(self):
@@ -264,7 +267,7 @@ class Spectrum(object):
 
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, supernova):
+    def __init__(self, idr_directory, meta, supernova, restframe=True):
         super(IdrSpectrum, self).__init__(idr_directory, meta, supernova)
 
         # Lazy load the wave and flux when we actually use them. This makes
@@ -272,6 +275,8 @@ class IdrSpectrum(Spectrum):
         self._wave = None
         self._flux = None
         self._fluxvar = None
+
+        self.restframe = restframe
 
         # Check if the spectrum is good or not. We drop everything that is
         # flagged in the IDR for now.
@@ -286,18 +291,76 @@ class IdrSpectrum(Spectrum):
         if self._wave is not None:
             return
 
-        path = '%s/%s' % (self.idr_directory, self.meta['idr.spec_restframe'])
-        fits_file = fits.open(path)
+        if self.restframe:
+            key = 'idr.spec_restframe'
+        else:
+            key = 'idr.spec_merged'
 
-        cdelt1 = fits_file[0].header['CDELT1']
-        naxis1 = fits_file[0].header['NAXIS1']
-        crval1 = fits_file[0].header['CRVAL1']
+        try:
+            path = '%s/%s' % (self.idr_directory, self.meta[key])
+        except KeyError:
+            if self.restframe and 'idr.spec_merged' in self.meta:
+                print "Did you mean to set restframe=False?"
+            raise
 
-        self._wave = crval1 + cdelt1 * np.arange(naxis1)
-        self._flux = fits_file[0].data
-        self._fluxvar = fits_file[1].data
+        with fits.open(path) as fits_file:
+            fits_file = fits.open(path)
 
-        fits_file.close()
+            header = fits_file[0].header
+            cdelt1 = header['CDELT1']
+            naxis1 = header['NAXIS1']
+            crval1 = header['CRVAL1']
+
+            self._wave = crval1 + cdelt1 * np.arange(naxis1)
+            self._flux = np.copy(fits_file[0].data)
+            self._fluxvar = np.copy(fits_file[1].data)
+
+            self.meta['fits.insttemp'] = header['INSTTEMP']
+            self.meta['fits.airmass'] = header['AIRMASS']
+            self.meta['fits.altitude'] = header['ALTITUDE']
+            self.meta['fits.azimuth'] = header['AZIMUTH']
+            self.meta['fits.timeon'] = header['TIMEON']
+            self.meta['fits.dettemp'] = header['DETTEMP']
+            self.meta['fits.bcfocus'] = header['BCFOCUS']
+            self.meta['fits.rcfocus'] = header['RCFOCUS']
+            self.meta['fits.seeing'] = header['SEEING']
+
+            self.meta['es.chi2'] = header['ES_CHI2']
+            self.meta['es.airm'] = header['ES_AIRM']
+            self.meta['es.paran'] = header['ES_PARAN']
+            self.meta['es.xc'] = header['ES_XC']
+            self.meta['es.yc'] = header['ES_YC']
+            self.meta['es.xy'] = header['ES_XY']
+            self.meta['es.lmin'] = header['ES_LMIN']
+            self.meta['es.lmax'] = header['ES_LMAX']
+            self.meta['es.e0'] = header['ES_E0']
+            self.meta['es.a0'] = header['ES_A0']
+            self.meta['es.a1'] = header['ES_A1']
+            self.meta['es.a2'] = header['ES_A2']
+            self.meta['es.tflux'] = header['ES_TFLUX']
+            self.meta['es.sflux'] = header['ES_SFLUX']
+
+            try:
+                self.meta['cbft.snx'] = header['CBFT_SNX']
+                self.meta['cbft.sny'] = header['CBFT_SNY']
+            except KeyError:
+                pass
+
+            runid = header['RUNID']
+            self.meta['fits.dayofyear'] = int(runid[3:6])
+
+            ha_str = header['HA']
+            ha_comps = ha_str.split(':')
+            if ha_str[0] == '-':
+                ha_sign = -1
+            else:
+                ha_sign = +1
+            ha = ha_sign * (
+                abs(int(ha_comps[0])) +
+                int(ha_comps[1]) / 60. +
+                float(ha_comps[2]) / 3600.
+            )
+            self.meta['fits.ha'] = ha
 
     @property
     def wave(self):
