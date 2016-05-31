@@ -48,12 +48,48 @@ def apply_windowed_function(x, func, window_frac=0.05):
     return out
 
 
-def windowed_nmad(x, window_frac=0.05):
-    return apply_windowed_function(x, nmad, window_frac)
+def windowed_nmad(x, *args, **kwargs):
+    return apply_windowed_function(x, nmad, *args, **kwargs)
 
 
-def windowed_rms(x, window_frac=0.05):
-    return apply_windowed_function(x, rms, window_frac)
+def windowed_rms(x, *args, **kwargs):
+    return apply_windowed_function(x, rms, *args, **kwargs)
+
+
+def windowed_median(x, *args, **kwargs):
+    return apply_windowed_function(x, np.median, *args, **kwargs)
+
+
+def windowed_mean(x, *args, **kwargs):
+    return apply_windowed_function(x, np.mean, *args, **kwargs)
+
+
+def plot_windowed_function(x, y, func, *args, **kwargs):
+    from matplotlib import pyplot as plt
+
+    order = np.argsort(x)
+    x_ordered = x[order]
+    y_ordered = y[order]
+
+    result = apply_windowed_function(y_ordered, func, *args, **kwargs)
+
+    plt.plot(x_ordered, result)
+
+
+def plot_windowed_nmad(x, y, *args, **kwargs):
+    return plot_windowed_function(x, y, nmad, *args, **kwargs)
+
+
+def plot_windowed_rms(x, y, *args, **kwargs):
+    return plot_windowed_function(x, y, rms, *args, **kwargs)
+
+
+def plot_windowed_median(x, y, *args, **kwargs):
+    return plot_windowed_function(x, y, np.median, *args, **kwargs)
+
+
+def plot_windowed_mean(x, y, *args, **kwargs):
+    return plot_windowed_function(x, y, np.mean, *args, **kwargs)
 
 
 def fit_global_values(id_1, id_2, diffs, weights=None,
