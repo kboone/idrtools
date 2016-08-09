@@ -7,8 +7,11 @@ def unbiased_std(x):
     return np.sqrt(np.sum(x*x) / (len(x) - 1))
 
 
-def nmad(x):
-    return 1.4826 * np.median(np.abs(np.asarray(x) - np.median(x)))
+def nmad(x, *args, **kwargs):
+    return 1.4826 * np.median(
+        np.abs(np.asarray(x) - np.median(x, *args, **kwargs)),
+        *args, **kwargs
+    )
 
 
 def rms(x):
@@ -32,6 +35,8 @@ def cum_nmad(x):
 
 
 def apply_windowed_function(x, func, window_frac=0.05):
+    x = np.asarray(x)
+
     window_size = int(np.around(len(x) * window_frac / 2.))
     out = np.zeros(len(x))
     for i in range(len(x)):
@@ -64,16 +69,19 @@ def windowed_mean(x, *args, **kwargs):
     return apply_windowed_function(x, np.mean, *args, **kwargs)
 
 
-def plot_windowed_function(x, y, func, *args, **kwargs):
+def plot_windowed_function(x, y, func, window_frac=0.05, *args, **kwargs):
     from matplotlib import pyplot as plt
+
+    x = np.asarray(x)
+    y = np.asarray(y)
 
     order = np.argsort(x)
     x_ordered = x[order]
     y_ordered = y[order]
 
-    result = apply_windowed_function(y_ordered, func, *args, **kwargs)
+    result = apply_windowed_function(y_ordered, func, window_frac)
 
-    plt.plot(x_ordered, result)
+    plt.plot(x_ordered, result, *args, **kwargs)
 
 
 def plot_windowed_nmad(x, y, *args, **kwargs):
