@@ -1,5 +1,4 @@
 from astropy.io import fits
-from matplotlib import pyplot as plt
 import numpy as np
 
 
@@ -271,6 +270,7 @@ class Spectrum(object):
         If offset is non-zero, then the offset is added to the flux.
 
         Any kwargs are passed to plt.plot"""
+        from matplotlib import pyplot as plt
 
         wave = self.wave
         flux = self.flux + offset
