@@ -48,7 +48,11 @@ class Spectrum(object):
     @usable.setter
     def usable(self, usable):
         if usable:
-            del self.meta['idrtools.usable']
+            try:
+                del self.meta['idrtools.usable']
+            except KeyError:
+                # Not there, already good.
+                pass
         else:
             self.meta['idrtools.usable'] = False
 
@@ -67,17 +71,22 @@ class Spectrum(object):
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
-    def apply_binning(self, bin_edges, modification=None):
+    def apply_binning(self, bin_edges, modification=None, integrate=False):
         """Bin the spectrum with the given bin edges.
 
         Note that the number of bins will be equal to len(bin_edges) - 1.
+
+        I don't do interpolation here, I just group by bin. This should be ok,
+        and should make our bins more independent than interpolation, which is
+        probably a good thing. The output is in units of erg/s/cm2/A
+
+        If integrate is True, then the output units are erg/s/cm2.
         """
         wave = self.wave
         flux = self.flux
         fluxvar = self.fluxvar
 
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        # bin_widths = (bin_edges[1:] - bin_edges[:-1])
         new_wave = np.around(bin_centers)
 
         binned_flux = np.zeros(len(bin_centers))
@@ -101,6 +110,11 @@ class Spectrum(object):
         binned_flux /= bin_counts
         binned_fluxvar /= (bin_counts * bin_counts)
 
+        if integrate:
+            bin_widths = (bin_edges[1:] - bin_edges[:-1])
+            binned_flux *= bin_widths
+            binned_fluxvar *= (bin_widths * bin_widths)
+
         if modification is None:
             modification = "Rebinned to %d bins in range [%.0f, %.0f]" % (
                 len(bin_centers), np.min(bin_edges), np.max(bin_edges)
@@ -113,14 +127,26 @@ class Spectrum(object):
             fluxvar=binned_fluxvar
         )
 
-    def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600):
+    def bin_by_wavelength(self, width=20, min_wave=3300, max_wave=8600,
+                          integrate=False):
+        """Bin the spectrum in wavelength space
+
+        min_wave and max_wave are in angstroms, delta is the bin width in
+        angstroms.
+        """
+        bin_edges = np.arange(min_wave, max_wave, width)
+
+        modification = "Binned to %.0f Angstroms in range [%.0f, %.0f]" % (
+            width, min_wave, max_wave
+        )
+
+        return self.apply_binning(bin_edges, modification, integrate=integrate)
+
+    def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600,
+                        integrate=False):
         """Bin the spectrum in velocity/log-wavelength space
 
         min_wave and max_wave are in angstroms, velocity is in km/s
-
-        I don't do interpolation here, I just group by bin. This should be ok,
-        and should make our bins more independent than interpolation, which is
-        probably a good thing. The output is in units of erg/s/cm2/A
         """
         # Find the right spacing for those bin edges. We get as close as we can
         # to the desired velocity.
@@ -135,7 +161,7 @@ class Spectrum(object):
             velocity, min_wave, max_wave
         )
 
-        return self.apply_binning(bin_edges, modification)
+        return self.apply_binning(bin_edges, modification, integrate=integrate)
 
     def apply_reddening(self, rv, ebv, color_law='CCM'):
         if color_law == 'CCM':
@@ -324,15 +350,49 @@ class IdrSpectrum(Spectrum):
             self.meta['fits.bcfocus'] = header['BCFOCUS']
             self.meta['fits.rcfocus'] = header['RCFOCUS']
             self.meta['fits.seeing'] = header['SEEING']
+            self.meta['fits.mjd'] = header['JD'] - 2400000.5
+            self.meta['fits.latitude'] = header['LATITUDE']
+            self.meta['fits.longitude'] = header['LONGITUD']
+            self.meta['fits.efftime'] = header['EFFTIME']
+            # self.meta['fits.utc'] = header['UTC']
 
-            self.meta['es.chi2'] = header['ES_CHI2']
+            # self.meta['fits.hinsid'] = header['HINSID']
+            # self.meta['fits.hintube'] = header['HINTUBE']
+            # self.meta['fits.houtsd'] = header['HOUTSD']
+            # self.meta['fits.tdmoil'] = header['TDMOIL']
+            # self.meta['fits.tdmwal'] = header['TDMWAL']
+            # self.meta['fits.tglycl'] = header['TGLYCL']
+            # self.meta['fits.tinsid'] = header['TINSID']
+            # self.meta['fits.tintube'] = header['TINTUBE']
+            # self.meta['fits.toutsd'] = header['TOUTSD']
+            # self.meta['fits.tpboil'] = header['TPBOIL']
+            # self.meta['fits.tpier1'] = header['TPIER1']
+            # self.meta['fits.tpmirr'] = header['TPMIRR']
+            # self.meta['fits.ttbase'] = header['TTBASE']
+            # self.meta['fits.ttdome'] = header['TTDOME']
+            # self.meta['fits.tttube'] = header['TTTUBE']
+            # self.meta['fits.pressure'] = header['PRESSURE']
+            # self.meta['fits.temp'] = header['TEMP']
+            # self.meta['fits.humidity'] = header['HUMIDITY']
+
+            # self.meta['fits.rdnoise1'] = header['RDNOISE1']
+            # self.meta['fits.rdnoise2'] = header['RDNOISE2']
+            # self.meta['fits.ovscmed1'] = header['OVSCMED1']
+            # self.meta['fits.ovscmed2'] = header['OVSCMED2']
+            # self.meta['fits.saturat1'] = header['SATURAT1']
+            # self.meta['fits.saturat2'] = header['SATURAT2']
+
+            # self.meta['fits.arcoff'] = header['ARCOFF']
+            # self.meta['fits.arcsca'] = header['ARCSCA']
+            # self.meta['fits.scioff'] = header['SCIOFF']
+            # self.meta['fits.scisca'] = header['SCISCA']
+
+            # self.meta['es.chi2'] = header['ES_CHI2']
             self.meta['es.airm'] = header['ES_AIRM']
             self.meta['es.paran'] = header['ES_PARAN']
             self.meta['es.xc'] = header['ES_XC']
             self.meta['es.yc'] = header['ES_YC']
             self.meta['es.xy'] = header['ES_XY']
-            self.meta['es.lmin'] = header['ES_LMIN']
-            self.meta['es.lmax'] = header['ES_LMAX']
             self.meta['es.e0'] = header['ES_E0']
             self.meta['es.a0'] = header['ES_A0']
             self.meta['es.a1'] = header['ES_A1']
