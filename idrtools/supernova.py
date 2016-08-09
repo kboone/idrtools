@@ -121,6 +121,14 @@ class Supernova(object):
 
         return self.spectra[use_idx]
 
+    def get_spectrum(self, exposure_id):
+        """Return a spectrum with a specific exposure id"""
+        for spectrum in self.all_spectra:
+            if spectrum['obs.exp'] == exposure_id:
+                return spectrum
+
+        return None
+
     def get_next_spectrum(self, spectrum, backwards=False):
         """Return the spectrum after a given spectrum.
 
