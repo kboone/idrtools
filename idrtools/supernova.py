@@ -29,8 +29,8 @@ class Supernova(object):
 
             # Require both channels
             spec_meta = spectrum.meta
-            if (('idr.spec_R' not in spec_meta)
-                    or ('idr.spec_B' not in spec_meta)):
+            if (('idr.spec_R' not in spec_meta) or
+                    ('idr.spec_B' not in spec_meta)):
                 continue
 
             all_spectra.append(spectrum)
@@ -143,8 +143,8 @@ class Supernova(object):
         next_spectrum = None
 
         for other_spectrum in self.spectra:
-            if ((backwards and (other_spectrum.phase < phase))
-                    or (not backwards and (other_spectrum.phase > phase))):
+            if ((backwards and (other_spectrum.phase < phase)) or
+                    (not backwards and (other_spectrum.phase > phase))):
                 offset = np.abs(other_spectrum.phase - phase)
 
                 if (min_offset is None) or (offset < min_offset):
@@ -152,6 +152,15 @@ class Supernova(object):
                     next_spectrum = other_spectrum
 
         return next_spectrum
+
+    def get_interpolator(self, interpolator_name):
+        from .interpolation import SupernovaInterpolator
+
+        interpolator = SupernovaInterpolator.load_interpolator(
+            interpolator_name, self.name
+        )
+
+        return interpolator
 
     def plot(self, show_error=False, **kwargs):
         """Plot the spectrum.

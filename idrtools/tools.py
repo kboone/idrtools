@@ -4,3 +4,11 @@ class IdrToolsException(Exception):
 
 class InvalidMetaDataException(IdrToolsException):
     pass
+
+
+class InterpolationException(IdrToolsException):
+    pass
+
+
+class SpectrumBoundsException(IdrToolsException):
+    pass

@@ -1,6 +1,87 @@
 from astropy.io import fits
 import numpy as np
 
+from .tools import InvalidMetaDataException, SpectrumBoundsException
+
+
+def _get_magnitude(wave, flux, min_wave, max_wave):
+    """Calculate the AB magnitude for a given tophat filter.
+
+    Flux should be in erg/cm^2/s/A to get the right normalization.
+
+    At some point I should implement non-tophat filters here. Note that
+    I am not handling edges properly... blah whatever close enough.
+    """
+
+    # Figure out the bin widths for the spectrum. We use half the
+    # distance between the nearest two bins, which should be a good
+    # approximation in most cases.
+    bin_widths = np.zeros(len(wave))
+    bin_widths[1:-1] = (wave[2:] - wave[:-2]) / 2.
+    bin_widths[0] = bin_widths[1]
+    bin_widths[-1] = bin_widths[-2]
+
+    # Ensure that the filter is contained within the spectrum. We allow 1 bin
+    # flexibility to avoid bin edge/bin center issues.
+    if ((max_wave > wave[-1] + bin_widths[-1]) or
+            (min_wave < wave[0] - bin_widths[0])):
+        raise SpectrumBoundsException(
+            'Filter with edges %d, %d is not contained within the spectrum '
+            '(bounds: %d, %d)'
+            % (min_wave, max_wave, wave[0] - bin_widths[0], wave[-1] +
+               bin_widths[-1])
+        )
+
+    # Convert the flux from erg/cm^2/s/A to phot/cm^2/s/A
+    h = 6.626070040e-34
+    c = 2.99792458e18
+
+    phot_flux = flux * 10**-7 / h / c * wave
+
+    # Find the reference flux for the AB mag system. This is 3.631e-20
+    # erg/cm^2/s/Hz which we need to convert to phot/cm^2/s/A
+    ref_flux = 3.631e-20 * (10**-7 / h / c * wave) * (c / wave**2)
+
+    wave_cut = (wave > min_wave) & (wave < max_wave)
+
+    sum_flux = np.sum((phot_flux*bin_widths)[wave_cut])
+    sum_ref_flux = np.sum((ref_flux*bin_widths)[wave_cut])
+
+    result = -2.5*np.log10(sum_flux / sum_ref_flux)
+
+    return result
+
+
+def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
+                       restframe=True, redshift=0.):
+    """Calculate the AB magnitude for a given SNf filter.
+
+    These numbers will agree with the SNf filter data in the headers if you
+    use the observer frame filters (i.e. restframe=False) and convert from
+    Vega to AB (a constant).
+    """
+    filter_edges = {
+        'u': (3300., 4102.),
+        'b': (4102., 5100.),
+        'v': (5200., 6289.),
+        'r': (6289., 7607.),
+        'i': (7607., 9200.)
+    }
+    min_wave, max_wave = filter_edges[filter_name.lower()]
+
+    scale = 1.
+
+    # Get the right combination of restframe/non-restframe filter and
+    # spectrum.
+    if spec_restframe and not restframe:
+        scale = 1. - redshift
+    elif not spec_restframe and restframe:
+        scale = 1. + redshift
+
+    min_wave *= scale
+    max_wave *= scale
+
+    return _get_magnitude(wave, flux, min_wave, max_wave)
 
 class Spectrum(object):
     def __init__(self, idr_directory, meta, supernova=None):
@@ -63,6 +144,13 @@ class Spectrum(object):
             return self.meta['qmagn.phase']
 
     @property
+    def redshift(self):
+        if 'host.zcmb' in self.supernova.meta:
+            return self.supernova.meta['host.zcmb']
+        
+        raise InvalidMetaDataException('No key found for redshift')
+
+    @property
     def target(self):
         return self.meta['target.name']
 
@@ -95,8 +183,8 @@ class Spectrum(object):
         for orig_index in range(len(wave)):
             if wave[orig_index] < bin_edges[new_index]:
                 continue
-            while (new_index < len(bin_centers)
-                   and wave[orig_index] >= bin_edges[new_index+1]):
+            while (new_index < len(bin_centers) and
+                   wave[orig_index] >= bin_edges[new_index+1]):
                 new_index += 1
             if new_index >= len(bin_centers):
                 break
@@ -150,9 +238,8 @@ class Spectrum(object):
         # Find the right spacing for those bin edges. We get as close as we can
         # to the desired velocity.
         n_bins = int(round(
-            np.log10(float(max_wave) / min_wave)
-            / np.log10(1 + velocity/3.0e5)
-            + 1
+            np.log10(float(max_wave) / min_wave) /
+            np.log10(1 + velocity/3.0e5) + 1
         ))
         bin_edges = np.logspace(np.log10(min_wave), np.log10(max_wave), n_bins)
 
@@ -219,7 +306,7 @@ class Spectrum(object):
 
     def get_modified_spectrum(self, modification, idr_directory=None,
                               meta=None, wave=None, flux=None, fluxvar=None,
-                              supernova=None):
+                              supernova=None, restframe=None):
         """Get a modified version of the current spectrum with new values.
 
         modification is a string indicating what modification was done.
@@ -245,6 +332,9 @@ class Spectrum(object):
         if supernova is None:
             supernova = self.supernova
 
+        if restframe is None:
+            restframe = self.restframe
+
         try:
             modifications = self.modifications
         except AttributeError:
@@ -256,6 +346,7 @@ class Spectrum(object):
         return ModifiedSpectrum(
             idr_directory,
             meta,
+            restframe,
             wave,
             flux,
             fluxvar,
@@ -291,6 +382,20 @@ class Spectrum(object):
         plt.ylabel('Flux')
         plt.title(self)
 
+    def get_magnitude(self, min_wave, max_wave):
+        """Calculate the AB magnitude for a given tophat filter."""
+        return _get_magnitude(self.wave, self.flux, min_wave, max_wave)
+
+    def get_snf_magnitude(self, filter_name, restframe=True):
+        """Calculate the AB magnitude for a given SNf filter.
+
+        These numbers will agree with the SNf filter data in the headers if you
+        use the observer frame filters (i.e. restframe=False) and convert from
+        Vega to AB (a constant).
+        """
+        return _get_snf_magnitude(self.wave, self.flux, filter_name,
+                                  self.restframe, restframe, self.redshift)
+
 
 class IdrSpectrum(Spectrum):
     def __init__(self, idr_directory, meta, supernova, restframe=True):
@@ -307,8 +412,8 @@ class IdrSpectrum(Spectrum):
         # Check if the spectrum is good or not. We drop everything that is
         # flagged in the IDR for now.
         try:
-            if (self.meta['procB.Quality'] != 1
-                    or self.meta['procR.Quality'] != 1):
+            if (self.meta['procB.Quality'] != 1 or
+                    self.meta['procR.Quality'] != 1):
                 self.meta['idrtools.usable'] = False
         except KeyError:
             pass
@@ -442,12 +547,14 @@ class IdrSpectrum(Spectrum):
 
 
 class ModifiedSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, wave, flux, fluxvar=None,
-                 supernova=None, modifications=[]):
+    def __init__(self, idr_directory, meta, restframe, wave, flux,
+                 fluxvar=None, supernova=None, modifications=[]):
         super(ModifiedSpectrum, self).__init__(idr_directory, meta, supernova)
 
         self.wave = wave
         self.flux = flux
         self.fluxvar = fluxvar
+
+        self.restframe = restframe
 
         self.modifications = modifications
