@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+
+import argparse
+import numpy as np
+from matplotlib import pyplot as plt
+from idrtools import Dataset
+from idrtools.tools import InterpolationException, SpectrumBoundsException
+
+basedir = '/home/kyle/data/snfactory/idr/'
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument('sn_name')
+parser.add_argument('--gp_name', default='alleg')
+parser.add_argument('--idr', default='ALLEGv2')
+parser.add_argument('-c', '--comparison', default='lightcurve')
+
+args = parser.parse_args()
+
+print "Plotting SN %s" % args.sn_name
+print "    GP: %s" % args.gp_name
+print "    IDR: %s" % args.idr
+
+
+dataset = Dataset.from_idr(basedir + args.idr)
+
+supernova = dataset.get_supernova(args.sn_name)
+
+gp = supernova.get_interpolator(args.gp_name)
+
+min_phase = gp.min_phase
+max_phase = gp.max_phase
+
+phases = np.arange(min_phase, max_phase)
+
+waves = [3500, 4000, 5000, 6000, 7000, 8000]
+filter_colors = ['purple', 'b', 'g', 'gold', 'orange', 'r']
+
+for wave, color in zip(waves, filter_colors):
+    data_phases = []
+    data_fluxes = []
+    data_fluxerrs = []
+    for raw_spectrum in supernova.spectra:
+        spectrum = raw_spectrum.bin_by_velocity()
+        nearest_wave = np.argmin(np.abs(spectrum.wave - wave))
+
+        data_phases.append(spectrum.phase)
+        data_fluxes.append(spectrum.flux[nearest_wave])
+        data_fluxerrs.append(spectrum.fluxerr[nearest_wave])
+
+    data_phases = np.array(data_phases)
+    data_fluxes = np.array(data_fluxes)
+    data_fluxerrs = np.array(data_fluxerrs)
+
+    if args.comparison == 'lightcurve':
+        # GP
+        gp_fluxes = gp.get_flux(phases, wave)
+        gp_fluxerrs = gp.get_fluxerr(phases, wave)
+
+        plt.fill_between(phases, gp_fluxes - gp_fluxerrs, gp_fluxes +
+                         gp_fluxerrs, alpha=0.2, facecolor=color)
+        plt.plot(phases, gp_fluxes, c=color, label='%d $\AA$' % wave)
+
+        # Original data
+        plt.errorbar(data_phases, data_fluxes, data_fluxerrs, fmt='o', c=color)
+
+    elif args.comparison == 'dm':
+        cut_1 = (data_phases > gp.min_phase) & (data_phases < gp.max_phase)
+
+        gp_fluxes = gp.get_flux(data_phases[cut_1], wave)
+        gp_fluxerrs = gp.get_fluxerr(data_phases[cut_1], wave)
+
+        cut_2 = (gp_fluxes > 0) & (data_fluxes[cut_1] > 0)
+
+        all_dm = -2.5*np.log10(data_fluxes[cut_1][cut_2] / gp_fluxes[cut_2])
+
+        plt.scatter(data_phases[cut_1][cut_2], all_dm, c=color, s=50,
+                    label='%d $\AA$' % wave)
+
+    else:
+        raise Exception('Unknown comparison %s' % args.comparison)
+
+plt.xlabel('Phase (days)')
+
+plt.legend()
+
+if args.comparison == 'lightcurve':
+    plt.title('Lightcurve of %s in %s with %s GP' % (args.sn_name, args.idr,
+                                                     args.gp_name))
+    plt.ylabel('Flux (IDR scale)')
+elif args.comparison == 'dm':
+    plt.title('$\Delta M$ of %s in %s with %s GP' % (args.sn_name, args.idr,
+                                                     args.gp_name))
+    plt.ylabel('Difference in magnitude')
+
+
+plt.show()

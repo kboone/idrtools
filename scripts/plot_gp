@@ -1,0 +1,84 @@
+#!/usr/bin/env python
+
+import argparse
+import numpy as np
+from matplotlib import pyplot as plt
+from idrtools import Dataset
+from idrtools.tools import InterpolationException, SpectrumBoundsException
+
+basedir = '/home/kyle/data/snfactory/idr/'
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument('sn_name')
+parser.add_argument('--gp_name', default='alleg')
+parser.add_argument('--idr', default='ALLEGv2')
+parser.add_argument('-c', '--comparison', default='lightcurve')
+
+args = parser.parse_args()
+
+print "Plotting SN %s" % args.sn_name
+print "    GP: %s" % args.gp_name
+print "    IDR: %s" % args.idr
+
+
+dataset = Dataset.from_idr(basedir + args.idr)
+
+supernova = dataset.get_supernova(args.sn_name)
+
+gp = supernova.get_interpolator(args.gp_name)
+
+min_phase = gp.min_phase
+max_phase = gp.max_phase
+
+phases = np.arange(min_phase, max_phase)
+
+filters = ['u', 'b', 'v', 'r']
+filter_colors = ['purple', 'b', 'g', 'r']
+
+for filter_name, color in zip(filters, filter_colors):
+    if args.comparison == 'lightcurve':
+        # GP
+        plt.plot(phases, gp.get_snf_magnitude(filter_name, phases), c=color,
+                 label='SNf ' + filter_name)
+
+        # Original data
+        for spectrum in supernova.spectra:
+            plt.scatter(spectrum.phase,
+                        spectrum.get_snf_magnitude(filter_name), c=color, s=50)
+
+    elif args.comparison == 'dm':
+        all_dm = []
+        use_phases = []
+        for spectrum in supernova.spectra:
+            try:
+                dm = (gp.get_snf_magnitude(filter_name, spectrum.phase) -
+                      spectrum.get_snf_magnitude(filter_name))
+                use_phases.append(spectrum.phase)
+                all_dm.append(dm)
+            except (InterpolationException, SpectrumBoundsException):
+                # Out of interpolation bounds. Skip this point.
+                pass
+
+        plt.scatter(use_phases, all_dm, c=color, s=50, label='SNf ' +
+                    filter_name)
+
+    else:
+        raise Exception('Unknown comparison %s' % args.comparison)
+
+plt.xlabel('Phase (days)')
+
+plt.legend()
+
+if args.comparison == 'lightcurve':
+    plt.title('Lightcurve of %s in %s with %s GP' % (args.sn_name, args.idr,
+                                                     args.gp_name))
+    plt.ylabel('Magnitude (IDR scale)')
+elif args.comparison == 'dm':
+    plt.title('$\Delta M$ of %s in %s with %s GP' % (args.sn_name, args.idr,
+                                                     args.gp_name))
+    plt.ylabel('Difference in magnitude')
+
+
+plt.gca().invert_yaxis()
+plt.show()
