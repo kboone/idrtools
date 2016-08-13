@@ -138,7 +138,9 @@ class Spectrum(object):
 
     @property
     def phase(self):
-        if 'salt2.phase' in self.meta:
+        if 'idrtools.phase' in self.meta:
+            return self.meta['idrtools.phase']
+        elif 'salt2.phase' in self.meta:
             return self.meta['salt2.phase']
         else:
             return self.meta['qmagn.phase']
@@ -147,7 +149,7 @@ class Spectrum(object):
     def redshift(self):
         if 'host.zcmb' in self.supernova.meta:
             return self.supernova.meta['host.zcmb']
-        
+
         raise InvalidMetaDataException('No key found for redshift')
 
     @property

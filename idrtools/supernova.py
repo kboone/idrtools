@@ -162,6 +162,46 @@ class Supernova(object):
 
         return interpolator
 
+    def get_interpolated_spectra(self, interpolator_name, phases, wave):
+        interpolator = self.get_interpolator(interpolator_name)
+
+        flux = interpolator.get_flux(phases, wave)
+        fluxvar = interpolator.get_fluxvar(phases, wave)
+
+        # TODO: do this better. I just copy the meta from the first spectrum of
+        # this supernova from now and do a couple hacks to update it. This
+        # whole class really needs to be written...
+        ref_spectrum = self.spectra[0]
+
+        spectra = []
+        for i in range(len(phases)):
+            phase = phases[i]
+            iter_flux = flux[i]
+            iter_fluxvar = fluxvar[i]
+
+            meta = ref_spectrum.meta.copy()
+            meta['idrtools.usable'] = True
+            meta['idrtools.phase'] = phase
+
+            spectrum = ref_spectrum.get_modified_spectrum(
+                "Loaded GP with phase %.2f" % phase,
+                meta=meta,
+                wave=wave,
+                flux=iter_flux,
+                fluxvar=iter_fluxvar,
+                restframe=True
+            )
+
+            spectra.append(spectrum)
+
+        return spectra
+
+    def get_interpolated_spectrum(self, interpolator_name, phase, wave):
+        assert np.isscalar(phase)
+
+        return self.get_interpolated_spectra(interpolator_name, [phase],
+                                             wave)[0]
+
     def plot(self, show_error=False, **kwargs):
         """Plot the spectrum.
 
