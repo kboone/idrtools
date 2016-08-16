@@ -14,6 +14,7 @@ parser.add_argument('phase', type=float)
 parser.add_argument('--gp_name', default='alleg')
 parser.add_argument('--idr', default='ALLEGv2')
 parser.add_argument('-c', '--comparison', default='flux')
+parser.add_argument('-v', '--velocity', default=1000., type=float)
 
 args = parser.parse_args()
 
@@ -26,14 +27,17 @@ dataset = Dataset.from_idr(basedir + args.idr)
 
 supernova = dataset.get_supernova(args.sn_name)
 
-gp = supernova.get_interpolator(args.gp_name)
+raw_spectrum = supernova.get_nearest_spectrum(args.phase)
+spectrum = raw_spectrum.bin_by_velocity(args.velocity)
 
+gp = supernova.get_interpolator(args.gp_name)
 min_wave = gp.min_wave
 max_wave = gp.max_wave
-
 gp_wave = np.arange(min_wave, max_wave, 2.0)
+gp_spectrum = supernova.get_interpolated_spectrum(
+    args.gp_name, spectrum.phase, gp_wave
+)
 
-spectrum = supernova.get_nearest_spectrum(args.phase).bin_by_velocity()
 
 print "    Phase: %.2f" % spectrum.phase
 
@@ -43,20 +47,20 @@ spec_wave = spectrum.wave
 ylabel = 'Flux'
 
 if args.comparison == 'flux':
-    gp_flux = gp.get_flux(spectrum.phase, gp_wave)
-    gp_fluxerr = gp.get_fluxerr(spectrum.phase, gp_wave)
+    gp_flux = gp_spectrum.flux
+    gp_fluxerr = gp_spectrum.fluxerr
     plt.fill_between(gp_wave, gp_flux - gp_fluxerr, gp_flux + gp_fluxerr,
                      facecolor='b', alpha=0.2)
     plt.plot(gp_wave, gp_flux, c='b', label='GP spectrum')
     plt.plot(spec_wave, spec_flux, c='g', label='Original spectrum')
 elif args.comparison == 'mag':
-    gp_flux = gp.get_flux(spectrum.phase, gp_wave)
+    gp_flux = gp_spectrum.flux
     plt.plot(spec_wave, -2.5*np.log10(np.abs(spec_flux)),
              label='Original spectrum')
     plt.plot(gp_wave, -2.5*np.log10(np.abs(gp_flux)), label='GP spectrum')
     ylabel = 'Magnitudes'
 elif args.comparison == 'dm':
-    gp_flux = gp.get_flux(spectrum.phase, spec_wave)
+    gp_flux = gp_spectrum.bin_by_velocity(args.velocity).flux
     diff = -2.5*np.log10(np.abs(spec_flux / gp_flux))
     plt.plot(spec_wave, diff, label='Difference between GP and original flux')
     ylabel = 'Magnitudes'
