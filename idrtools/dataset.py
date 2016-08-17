@@ -152,8 +152,8 @@ class Dataset(object):
 
         for sn in self.supernovae:
             in_list = sn.name in sn_list
-            if ((intersection and in_list)
-                    or (not intersection and not in_list)):
+            if ((intersection and in_list) or
+                    (not intersection and not in_list)):
                 filter_supernovae.append(sn)
 
         return Dataset(self.idr_directory, filter_supernovae, self.meta)
