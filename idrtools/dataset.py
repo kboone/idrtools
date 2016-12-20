@@ -140,6 +140,19 @@ class Dataset(object):
             if sn in self.meta:
                 self.meta[sn].update(sn_dict)
 
+    def cut_supernova(self, supernova_name):
+        """Cut a single supernova from the dataset by name."""
+        filter_supernovae = []
+        for sn in self.supernovae:
+            if sn.name != supernova_name:
+                filter_supernovae.append(sn)
+
+        if len(filter_supernovae) == len(self.supernovae):
+            raise IdrToolsException("No supernova found with name %s!" %
+                                    supernova_name)
+
+        return Dataset(self.idr_directory, filter_supernovae, self.meta)
+
     def cut_supernova_list(self, sn_list, intersection=False):
         """Cut the dataset to a list of supernovae.
 
@@ -157,6 +170,21 @@ class Dataset(object):
                 filter_supernovae.append(sn)
 
         return Dataset(self.idr_directory, filter_supernovae, self.meta)
+
+    def cut_bad_spectra(self, spectra_list, intersection=False):
+        """Cut a list of spectra from the dataset.
+
+        If intersection is True, then spectra in the list are kept.
+        Otherwise, spectra in the list are rejected.
+        """
+        spectra_list = np.genfromtxt(spectra_list, dtype=None)
+
+        for supernova in self.supernovae:
+            for spectrum in supernova.spectra:
+                in_list = spectrum['obs.exp'] in spectra_list
+                if ((intersection and not in_list) or
+                        (not intersection and in_list)):
+                    spectrum.usable = False
 
     def get_supernova(self, name):
         """Find a supernova that matches the given name.

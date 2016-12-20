@@ -150,6 +150,10 @@ class Spectrum(object):
         if 'host.zcmb' in self.supernova.meta:
             return self.supernova.meta['host.zcmb']
 
+        elif 'StdStar' in self.supernova.meta['target.kind']:
+            # This is a standard star. Redshift is 0.
+            return 0.
+
         raise InvalidMetaDataException('No key found for redshift')
 
     @property
@@ -420,10 +424,9 @@ class IdrSpectrum(Spectrum):
         except KeyError:
             pass
 
-    def do_lazyload(self):
-        if self._wave is not None:
-            return
-
+    @property
+    def path(self):
+        """Find the path to the file"""
         if self.restframe:
             key = 'idr.spec_restframe'
         else:
@@ -436,9 +439,13 @@ class IdrSpectrum(Spectrum):
                 print "Did you mean to set restframe=False?"
             raise
 
-        with fits.open(path) as fits_file:
-            fits_file = fits.open(path)
+        return path
 
+    def do_lazyload(self):
+        if self._wave is not None:
+            return
+
+        with fits.open(self.path) as fits_file:
             header = fits_file[0].header
             cdelt1 = header['CDELT1']
             naxis1 = header['NAXIS1']
