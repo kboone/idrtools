@@ -1,7 +1,15 @@
+"""
+Spectrum.py
+Author: Kyle Boone
+
+Class to represent a spectrum and perform common operations on it.
+"""
+
 from astropy.io import fits
 import numpy as np
 
-from .tools import InvalidMetaDataException, SpectrumBoundsException
+from .tools import InvalidMetaDataException, SpectrumBoundsException, \
+    InvalidDataException
 
 
 def _get_magnitude(wave, flux, min_wave, max_wave):
@@ -111,17 +119,171 @@ def _recover_bin_edges(bin_centers):
 
     # Stack everything together
     bin_edges = np.hstack([f1, f2, o2, b2, b1])
+    bin_starts = bin_edges[:-1]
+    bin_ends = bin_edges[1:]
 
-    return bin_edges
+    return bin_starts, bin_ends
 
 
 class Spectrum(object):
-    def __init__(self, meta, supernova=None):
-        self.meta = meta.copy()
-        self.supernova = supernova
+    def __init__(self, meta={}, target=None, **data_dict):
+        """Initialize the spectrum.
+
+        Data can be optionally passed in with a variety of keywords.
+        """
+        self.meta = self._get_default_meta()
+        self.meta.update(meta)
+
+        # Parse the data that was passed in.
+        self._load_data(data_dict)
+
+        self.target = target
+
+    def _get_default_meta(self):
+        """Default meta for a new spectrum"""
+        meta = {}
+
+        # Locations of keys. These will be used to map the various properties
+        # of this class to physical values in the meta.
+        meta['idrtools.keys.redshift'] = 'idrtools.redshift'
+        meta['idrtools.keys.name'] = 'idrtools.name'
+        meta['idrtools.keys.phase'] = 'idrtools.phase'
+        meta['idrtools.keys.target_name'] = 'idrtools.target_name'
+
+        # Default keys
+        meta['idrtools.redshift'] = None
+        meta['idrtools.name'] = None
+        meta['idrtools.phase'] = None
+        meta['idrtools.target_name'] = None
+
+        return meta
+
+    def _load_data(self, data_dict):
+        """Load data from a data dict"""
+        self._bin_starts, self._bin_ends = (
+            self._parse_wavelength_information(data_dict)
+        )
+        self._flux, self._fluxvar = self._parse_flux_information(data_dict)
+
+        self._validate_data()
+
+    def _parse_wavelength_information(self, data_dict):
+        """Parse wavelength information from a data dictionary.
+
+        Internally we store the wavelength as a list of minimum as maximum
+        for bins. However, users typically have ether a list of wavelengths
+        or a list of bin edges. We support all of the above with the
+        following keys:
+        - wave or bin_centers
+        - bin_edges
+        - bin_starts, bin_ends
+
+        This will return (None, None) if there wasn't any wavelength
+        information.
+        """
+        # Count how many different keys we found. Multiple wavelength
+        # definitions is not supported.
+        num_wave_keys = 0
+        bin_starts = None
+        bin_ends = None
+
+        # Directly specified starts and ends
+        if 'bin_starts' in data_dict and 'bin_ends' in data_dict:
+            num_wave_keys += 1
+            bin_starts = data_dict['bin_starts']
+            bin_ends = data_dict['bin_ends']
+
+        # Bin edges specified
+        if 'bin_edges' in data_dict:
+            num_wave_keys += 1
+            bin_edges = data_dict['bin_edges']
+            bin_starts = bin_edges[:-1]
+            bin_ends = bin_edges[1:]
+
+        # Bin centers specified
+        bin_centers = None
+        if 'wave' in data_dict:
+            num_wave_keys += 1
+            bin_centers = data_dict['wave']
+        if 'bin_centers' in data_dict:
+            num_wave_keys += 1
+            bin_centers = data_dict['bin_centers']
+        if bin_centers is not None:
+            bin_starts, bin_ends = _recover_bin_edges(bin_centers)
+
+        if num_wave_keys > 1:
+            error = 'Wavelength specified multiple times (keys: %s)!' % (
+                data_dict.keys()
+            )
+            raise InvalidDataException(error)
+
+        return bin_starts, bin_ends
+
+    def _parse_flux_information(self, data_dict):
+        """
+        Parse flux information from a data dictionary.
+
+        Internally we store both the flux and the flux variance (if specified).
+        The variance may be specified either as a variance (fluxvar) or an
+        error (fluxerr)
+
+        This will return (None, None) if there isn't any flux information.
+
+        This function must be called after the wavelength information has
+        already been parsed as it does some error checking.
+        """
+        # Count how many different fluxvar keys we found. Multiple flux
+        # variance definitions is not supported.
+        num_fluxvar_keys = 0
+        flux = None
+        fluxvar = None
+
+        if 'flux' in data_dict:
+            flux = data_dict['flux']
+        if 'fluxvar' in data_dict:
+            num_fluxvar_keys += 1
+            fluxvar = data_dict['fluxvar']
+        if 'fluxerr' in data_dict:
+            num_fluxvar_keys += 1
+            fluxerr = data_dict['fluxerr']
+            fluxvar = fluxerr**2
+
+        if num_fluxvar_keys > 1:
+            error = 'Flux variance specified multiple times (keys: %s)!' % (
+                data_dict.keys()
+            )
+            raise InvalidDataException(error)
+
+        return flux, fluxvar
+
+    def _validate_data(self):
+        """Validate the data in this spectrum.
+
+        This will make sure that the data isn't nonsense (eg: different number
+        of wavelength and flux elements) so that sensible errors are thrown.
+        """
+        error = None
+
+        if self._bin_starts is None:
+            if self._flux is not None or self._fluxvar is not None:
+                error = 'Must specify the wavelengths for the spectrum!'
+        else:
+            if len(self._bin_starts) != len(self._bin_ends):
+                error = 'bin_starts and bin_ends must be the same length!'
+
+            num_wave = len(self._bin_starts)
+            if num_wave != len(self._flux):
+                error = ('Must have the same number of wavelength and flux'
+                         'elements!')
+            elif num_wave != len(self._fluxvar):
+                error = ('Must have the same number of wavelength and fluxvar'
+                         'elements!')
+
+        if error is not None:
+            raise InvalidDataException(error)
 
     def __str__(self):
-        return self.meta['idr.prefix']
+        return self.meta[self.meta['idrtools.keys.name']]
 
     def __repr__(self):
         return '%s(name="%s")' % (type(self).__name__, str(self))
@@ -169,34 +331,49 @@ class Spectrum(object):
 
     @property
     def phase(self):
-        if 'idrtools.phase' in self.meta:
-            return self.meta['idrtools.phase']
-        elif 'salt2.phase' in self.meta:
-            return self.meta['salt2.phase']
-        else:
-            return self.meta['qmagn.phase']
+        return self.meta[self.meta['idrtools.keys.phase']]
 
     @property
     def redshift(self):
-        if 'host.zcmb' in self.supernova.meta:
-            return self.supernova.meta['host.zcmb']
-
-        elif 'StdStar' in self.supernova.meta['target.kind']:
-            # This is a standard star. Redshift is 0.
-            return 0.
-
-        raise InvalidMetaDataException('No key found for redshift')
+        return self.meta[self.meta['idrtools.keys.redshift']]
 
     @property
-    def target(self):
-        return self.meta['target.name']
+    def target_name(self):
+        return self.meta[self.meta['idrtools.keys.target_name']]
+
+    @property
+    def bin_starts(self):
+        return self._bin_starts
+
+    @property
+    def bin_ends(self):
+        return self._bin_ends
+
+    @property
+    def flux(self):
+        return self._flux
+
+    @property
+    def fluxvar(self):
+        return self._fluxvar
+
+    @property
+    def wave(self):
+        return (self.bin_starts + self.bin_ends) / 2.
+
+    @property
+    def bin_edges(self):
+        # Can only do this if the bins are sequential.
+        assert np.all(self.bin_starts[1:] == self.bin_ends[:-1])
+
+        return np.hstack([self.bin_starts, self.bin_ends[-1]])
 
     @property
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
     def apply_binning(self, bin_edges, modification=None, integrate=False,
-                          interpolate=False):
+                      interpolate=False):
         """Bin the spectrum with the given bin edges.
 
         Note that the number of bins will be equal to len(bin_edges) - 1.
@@ -214,7 +391,6 @@ class Spectrum(object):
         fluxvar = self.fluxvar
 
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        new_wave = np.around(bin_centers)
 
         binned_flux = np.zeros(len(bin_centers))
         binned_fluxvar = np.zeros(len(bin_centers))
@@ -249,7 +425,7 @@ class Spectrum(object):
 
         return self.get_modified_spectrum(
             modification,
-            wave=new_wave,
+            bin_edges=bin_edges,
             flux=binned_flux,
             fluxvar=binned_fluxvar
         )
@@ -352,12 +528,11 @@ class Spectrum(object):
         modification = "Shifted by %f in redshift." % delta_redshift
         return self.get_modified_spectrum(
             modification,
-            wave=self.wave * (1 - delta_redshift),
+            wave=self.wave * (1 + delta_redshift),
         )
 
-    def get_modified_spectrum(self, modification, meta=None, wave=None,
-                              flux=None, fluxvar=None, supernova=None,
-                              restframe=None):
+    def get_modified_spectrum(self, modification, meta=None, target=None,
+                              restframe=None, **data_dict):
         """Get a modified version of the current spectrum with new values.
 
         modification is a string indicating what modification was done.
@@ -368,20 +543,27 @@ class Spectrum(object):
         if meta is None:
             meta = self.meta
 
-        if wave is None:
-            wave = self.wave
+        if target is None:
+            target = self.target
+
+        if restframe is None:
+            restframe = self.restframe
+
+        # Check for updates to the wavelength or flux
+        bin_starts, bin_ends = self._parse_wavelength_information(data_dict)
+        flux, fluxvar = self._parse_flux_information(data_dict)
+
+        if bin_starts is None:
+            bin_starts = self.bin_starts
+
+        if bin_ends is None:
+            bin_ends = self.bin_ends
 
         if flux is None:
             flux = self.flux
 
         if fluxvar is None:
             fluxvar = self.fluxvar
-
-        if supernova is None:
-            supernova = self.supernova
-
-        if restframe is None:
-            restframe = self.restframe
 
         try:
             modifications = self.modifications
@@ -393,11 +575,12 @@ class Spectrum(object):
 
         return ModifiedSpectrum(
             meta,
+            target,
             restframe,
-            wave,
+            bin_starts,
+            bin_ends,
             flux,
             fluxvar,
-            supernova,
             modifications
         )
 
@@ -445,24 +628,47 @@ class Spectrum(object):
 
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, supernova, restframe=True):
-        super(IdrSpectrum, self).__init__(idr_directory, meta, supernova)
+    def __init__(self, idr_directory, meta, target, restframe=True):
+        super(IdrSpectrum, self).__init__(meta, target)
 
         # Lazy load the wave and flux when we actually use them. This makes
         # things a lot faster.
         self.idr_directory = idr_directory
-        self._wave = None
-        self._flux = None
-        self._fluxvar = None
 
         self.restframe = restframe
+
+        # Update meta keys
+        self.meta['idrtools.keys.name'] = 'idr.prefix'
+        self.meta['idrtools.keys.target_name'] = 'target.name'
+
+        # Find redshift
+        if 'host.zcmb' in self.target.meta:
+            redshift = self.target.meta['host.zcmb']
+        elif 'StdStar' in self.target.meta['target.kind']:
+            # This is a standard star. Redshift is 0.
+            redshift = 0.
+        else:
+            # Unknown redshift
+            raise InvalidMetaDataException('No redshift found for %s!' %
+                                           target)
+        self.meta['idrtools.redshift'] = redshift
+
+        # Find phase key
+        if 'salt2.phase' in self.meta:
+            phase_key = 'salt2.phase'
+        elif 'qmagn.phase' in self.meta:
+            phase_key = 'qmagn.phase'
+        else:
+            raise InvalidMetaDataException('No phase key found for %s!' %
+                                           target)
+        self.meta['idrtools.keys.phase'] = phase_key
 
         # Check if the spectrum is good or not. We drop everything that is
         # flagged in the IDR for now.
         try:
             if (self.meta['procB.Quality'] != 1 or
                     self.meta['procR.Quality'] != 1):
-                self.meta['idrtools.usable'] = False
+                self.usable = False
         except KeyError:
             pass
 
@@ -484,7 +690,7 @@ class IdrSpectrum(Spectrum):
         return path
 
     def do_lazyload(self):
-        if self._wave is not None:
+        if self._bin_starts is not None:
             return
 
         with fits.open(self.path) as fits_file:
@@ -493,7 +699,8 @@ class IdrSpectrum(Spectrum):
             naxis1 = header['NAXIS1']
             crval1 = header['CRVAL1']
 
-            self._wave = crval1 + cdelt1 * np.arange(naxis1)
+            wave = crval1 + cdelt1 * np.arange(naxis1)
+            self._bin_starts, self._bin_ends = _recover_bin_edges(wave)
             self._flux = np.copy(fits_file[0].data)
             self._fluxvar = np.copy(fits_file[1].data)
 
@@ -579,32 +786,35 @@ class IdrSpectrum(Spectrum):
             self.meta['fits.ha'] = ha
 
     @property
-    def wave(self):
+    def bin_starts(self):
         self.do_lazyload()
+        return super(IdrSpectrum, self).bin_starts
 
-        return self._wave
+    @property
+    def bin_ends(self):
+        self.do_lazyload()
+        return super(IdrSpectrum, self).bin_ends
 
     @property
     def flux(self):
         self.do_lazyload()
-
-        return self._flux
+        return super(IdrSpectrum, self).flux
 
     @property
     def fluxvar(self):
         self.do_lazyload()
-
-        return self._fluxvar
+        return super(IdrSpectrum, self).fluxvar
 
 
 class ModifiedSpectrum(Spectrum):
-    def __init__(self, meta, restframe, wave, flux, fluxvar=None,
-                 supernova=None, modifications=[]):
-        super(ModifiedSpectrum, self).__init__(meta, supernova)
+    def __init__(self, meta, target, restframe, bin_starts, bin_ends, flux,
+                 fluxvar, modifications=[]):
+        super(ModifiedSpectrum, self).__init__(meta, target)
 
-        self.wave = wave
-        self.flux = flux
-        self.fluxvar = fluxvar
+        self._bin_starts = bin_starts
+        self._bin_ends = bin_ends
+        self._flux = flux
+        self._fluxvar = fluxvar
 
         self.restframe = restframe
 

@@ -180,7 +180,6 @@ class Supernova(object):
             iter_fluxvar = fluxvar[i]
 
             meta = ref_spectrum.meta.copy()
-            meta['idrtools.usable'] = True
             meta['idrtools.phase'] = phase
 
             spectrum = ref_spectrum.get_modified_spectrum(
@@ -191,6 +190,8 @@ class Supernova(object):
                 fluxvar=iter_fluxvar,
                 restframe=True
             )
+
+            spectrum.usable = True
 
             spectra.append(spectrum)
 
