@@ -83,9 +83,40 @@ def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
 
     return _get_magnitude(wave, flux, min_wave, max_wave)
 
+
+def _recover_bin_edges(bin_centers):
+    """Convert a list of bin centers to bin edges.
+
+    We do a second order correction to try to get this as accurately as
+    possible.
+
+    For linear binning there is only machine precision error with either first
+    or second order binning.
+
+    For higher order binnings (eg: log), the fractional error is of order (dA /
+    A)**2 for linear recovery and (dA / A)**4 for the second order recovery
+    that we do here.
+    """
+    # First order
+    o1 = (bin_centers[:-1] + bin_centers[1:]) / 2.
+
+    # Second order correction
+    o2 = 1.5*o1[1:-1] - (o1[2:] + o1[:-2]) / 4.
+
+    # Estimate front and back edges
+    f2 = 2*bin_centers[1] - o2[0]
+    f1 = 2*bin_centers[0] - f2
+    b2 = 2*bin_centers[-2] - o2[-1]
+    b1 = 2*bin_centers[-1] - b2
+
+    # Stack everything together
+    bin_edges = np.hstack([f1, f2, o2, b2, b1])
+
+    return bin_edges
+
+
 class Spectrum(object):
-    def __init__(self, idr_directory, meta, supernova=None):
-        self.idr_directory = idr_directory
+    def __init__(self, meta, supernova=None):
         self.meta = meta.copy()
         self.supernova = supernova
 
@@ -164,16 +195,19 @@ class Spectrum(object):
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
-    def apply_binning(self, bin_edges, modification=None, integrate=False):
+    def apply_binning(self, bin_edges, modification=None, integrate=False,
+                          interpolate=False):
         """Bin the spectrum with the given bin edges.
 
         Note that the number of bins will be equal to len(bin_edges) - 1.
 
-        I don't do interpolation here, I just group by bin. This should be ok,
-        and should make our bins more independent than interpolation, which is
-        probably a good thing. The output is in units of erg/s/cm2/A
+        By default, the output is in units of erg/s/cm2/A. If integrate is
+        True, then the output units are erg/s/cm2.
 
-        If integrate is True, then the output units are erg/s/cm2.
+        If interpolate is True, then the edges between bins are interpolated
+        between. Otherwise the individual flux measurements are assigned to the
+        single bin that they fall mostly in. Note that interpolating introduces
+        correlations where not interpolating doesn't.
         """
         wave = self.wave
         flux = self.flux
@@ -310,9 +344,20 @@ class Spectrum(object):
             fluxvar=fluxvar
         )
 
-    def get_modified_spectrum(self, modification, idr_directory=None,
-                              meta=None, wave=None, flux=None, fluxvar=None,
-                              supernova=None, restframe=None):
+    def shift_redshift(self, delta_redshift):
+        """Shift a spectrum in redshift.
+
+        Note: for now this doesn't account for a cosmology or time dilation
+        """
+        modification = "Shifted by %f in redshift." % delta_redshift
+        return self.get_modified_spectrum(
+            modification,
+            wave=self.wave * (1 - delta_redshift),
+        )
+
+    def get_modified_spectrum(self, modification, meta=None, wave=None,
+                              flux=None, fluxvar=None, supernova=None,
+                              restframe=None):
         """Get a modified version of the current spectrum with new values.
 
         modification is a string indicating what modification was done.
@@ -320,9 +365,6 @@ class Spectrum(object):
         Any variables that aren't specified are taken from the current
         spectrum.
         """
-        if idr_directory is None:
-            idr_directory = self.idr_directory
-
         if meta is None:
             meta = self.meta
 
@@ -350,7 +392,6 @@ class Spectrum(object):
         modifications = modifications + [modification]
 
         return ModifiedSpectrum(
-            idr_directory,
             meta,
             restframe,
             wave,
@@ -409,6 +450,7 @@ class IdrSpectrum(Spectrum):
 
         # Lazy load the wave and flux when we actually use them. This makes
         # things a lot faster.
+        self.idr_directory = idr_directory
         self._wave = None
         self._flux = None
         self._fluxvar = None
@@ -556,9 +598,9 @@ class IdrSpectrum(Spectrum):
 
 
 class ModifiedSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, restframe, wave, flux,
-                 fluxvar=None, supernova=None, modifications=[]):
-        super(ModifiedSpectrum, self).__init__(idr_directory, meta, supernova)
+    def __init__(self, meta, restframe, wave, flux, fluxvar=None,
+                 supernova=None, modifications=[]):
+        super(ModifiedSpectrum, self).__init__(meta, supernova)
 
         self.wave = wave
         self.flux = flux
