@@ -9,7 +9,7 @@ from astropy.io import fits
 import numpy as np
 
 from .tools import InvalidMetaDataException, SpectrumBoundsException, \
-    InvalidDataException
+    InvalidDataException, IdrToolsException
 
 
 def _get_magnitude(wave, flux, min_wave, max_wave):
@@ -125,6 +125,97 @@ def _recover_bin_edges(bin_centers):
     return bin_starts, bin_ends
 
 
+def _parse_wavelength_information(data_dict):
+    """Parse wavelength information from a data dictionary.
+
+    Internally we store the wavelength as a list of minimum as maximum
+    for bins. However, users typically have ether a list of wavelengths
+    or a list of bin edges. We support all of the above with the
+    following keys:
+    - wave or bin_centers
+    - bin_edges
+    - bin_starts, bin_ends
+
+    This will return (None, None) if there wasn't any wavelength
+    information.
+    """
+    # Count how many different keys we found. Multiple wavelength
+    # definitions is not supported.
+    num_wave_keys = 0
+    bin_starts = None
+    bin_ends = None
+
+    # Directly specified starts and ends
+    if 'bin_starts' in data_dict and 'bin_ends' in data_dict:
+        num_wave_keys += 1
+        bin_starts = data_dict['bin_starts']
+        bin_ends = data_dict['bin_ends']
+
+    # Bin edges specified
+    if 'bin_edges' in data_dict:
+        num_wave_keys += 1
+        bin_edges = data_dict['bin_edges']
+        bin_starts = bin_edges[:-1]
+        bin_ends = bin_edges[1:]
+
+    # Bin centers specified
+    bin_centers = None
+    if 'wave' in data_dict:
+        num_wave_keys += 1
+        bin_centers = data_dict['wave']
+    if 'bin_centers' in data_dict:
+        num_wave_keys += 1
+        bin_centers = data_dict['bin_centers']
+    if bin_centers is not None:
+        bin_starts, bin_ends = _recover_bin_edges(bin_centers)
+
+    if num_wave_keys > 1:
+        error = 'Wavelength specified multiple times (keys: %s)!' % (
+            data_dict.keys()
+        )
+        raise InvalidDataException(error)
+
+    return bin_starts, bin_ends
+
+
+def _parse_flux_information(data_dict):
+    """
+    Parse flux information from a data dictionary.
+
+    Internally we store both the flux and the flux variance (if specified).
+    The variance may be specified either as a variance (fluxvar) or an
+    error (fluxerr)
+
+    This will return (None, None) if there isn't any flux information.
+
+    This function must be called after the wavelength information has
+    already been parsed as it does some error checking.
+    """
+    # Count how many different fluxvar keys we found. Multiple flux
+    # variance definitions is not supported.
+    num_fluxvar_keys = 0
+    flux = None
+    fluxvar = None
+
+    if 'flux' in data_dict:
+        flux = data_dict['flux']
+    if 'fluxvar' in data_dict:
+        num_fluxvar_keys += 1
+        fluxvar = data_dict['fluxvar']
+    if 'fluxerr' in data_dict:
+        num_fluxvar_keys += 1
+        fluxerr = data_dict['fluxerr']
+        fluxvar = fluxerr**2
+
+    if num_fluxvar_keys > 1:
+        error = 'Flux variance specified multiple times (keys: %s)!' % (
+            data_dict.keys()
+        )
+        raise InvalidDataException(error)
+
+    return flux, fluxvar
+
+
 class Spectrum(object):
     def __init__(self, meta={}, target=None, **data_dict):
         """Initialize the spectrum.
@@ -161,100 +252,11 @@ class Spectrum(object):
     def _load_data(self, data_dict):
         """Load data from a data dict"""
         self._bin_starts, self._bin_ends = (
-            self._parse_wavelength_information(data_dict)
+            _parse_wavelength_information(data_dict)
         )
-        self._flux, self._fluxvar = self._parse_flux_information(data_dict)
+        self._flux, self._fluxvar = _parse_flux_information(data_dict)
 
         self._validate_data()
-
-    def _parse_wavelength_information(self, data_dict):
-        """Parse wavelength information from a data dictionary.
-
-        Internally we store the wavelength as a list of minimum as maximum
-        for bins. However, users typically have ether a list of wavelengths
-        or a list of bin edges. We support all of the above with the
-        following keys:
-        - wave or bin_centers
-        - bin_edges
-        - bin_starts, bin_ends
-
-        This will return (None, None) if there wasn't any wavelength
-        information.
-        """
-        # Count how many different keys we found. Multiple wavelength
-        # definitions is not supported.
-        num_wave_keys = 0
-        bin_starts = None
-        bin_ends = None
-
-        # Directly specified starts and ends
-        if 'bin_starts' in data_dict and 'bin_ends' in data_dict:
-            num_wave_keys += 1
-            bin_starts = data_dict['bin_starts']
-            bin_ends = data_dict['bin_ends']
-
-        # Bin edges specified
-        if 'bin_edges' in data_dict:
-            num_wave_keys += 1
-            bin_edges = data_dict['bin_edges']
-            bin_starts = bin_edges[:-1]
-            bin_ends = bin_edges[1:]
-
-        # Bin centers specified
-        bin_centers = None
-        if 'wave' in data_dict:
-            num_wave_keys += 1
-            bin_centers = data_dict['wave']
-        if 'bin_centers' in data_dict:
-            num_wave_keys += 1
-            bin_centers = data_dict['bin_centers']
-        if bin_centers is not None:
-            bin_starts, bin_ends = _recover_bin_edges(bin_centers)
-
-        if num_wave_keys > 1:
-            error = 'Wavelength specified multiple times (keys: %s)!' % (
-                data_dict.keys()
-            )
-            raise InvalidDataException(error)
-
-        return bin_starts, bin_ends
-
-    def _parse_flux_information(self, data_dict):
-        """
-        Parse flux information from a data dictionary.
-
-        Internally we store both the flux and the flux variance (if specified).
-        The variance may be specified either as a variance (fluxvar) or an
-        error (fluxerr)
-
-        This will return (None, None) if there isn't any flux information.
-
-        This function must be called after the wavelength information has
-        already been parsed as it does some error checking.
-        """
-        # Count how many different fluxvar keys we found. Multiple flux
-        # variance definitions is not supported.
-        num_fluxvar_keys = 0
-        flux = None
-        fluxvar = None
-
-        if 'flux' in data_dict:
-            flux = data_dict['flux']
-        if 'fluxvar' in data_dict:
-            num_fluxvar_keys += 1
-            fluxvar = data_dict['fluxvar']
-        if 'fluxerr' in data_dict:
-            num_fluxvar_keys += 1
-            fluxerr = data_dict['fluxerr']
-            fluxvar = fluxerr**2
-
-        if num_fluxvar_keys > 1:
-            error = 'Flux variance specified multiple times (keys: %s)!' % (
-                data_dict.keys()
-            )
-            raise InvalidDataException(error)
-
-        return flux, fluxvar
 
     def _validate_data(self):
         """Validate the data in this spectrum.
@@ -372,66 +374,168 @@ class Spectrum(object):
     def fluxerr(self):
         return np.sqrt(self.fluxvar)
 
-    def apply_binning(self, bin_edges, modification=None, integrate=False,
-                      interpolate=False):
+    def apply_binning(self, modification=None, method='average_interpolate',
+                      weighting='variance', integrate=False, interpolate=False,
+                      **binning_data):
         """Bin the spectrum with the given bin edges.
 
-        Note that the number of bins will be equal to len(bin_edges) - 1.
+        Any of the keywords listed in _parse_wavelength_information can be used
+        to specify the binning.
 
         By default, the output is in units of erg/s/cm2/A. If integrate is
         True, then the output units are erg/s/cm2.
 
-        If interpolate is True, then the edges between bins are interpolated
-        between. Otherwise the individual flux measurements are assigned to the
-        single bin that they fall mostly in. Note that interpolating introduces
-        correlations where not interpolating doesn't.
+        There are several possible ways to do a rebinning:
+        - 'average_point': takes the average value in each bin, scaled by the
+        weights of the inputs. This method automatically downweights low
+        signal-to-noise data, but doesn't necessarily weight all wavelengths
+        within a bin fairly. Input fluxes are treated as being at the exact
+        centers of their bins so neighbouring output bins are uncorrelated.
+        - 'average_interpolate': Same as average_point, but the input fluxes
+        are treated as being uniformly spread over their bin instead of a
+        single point. This will produce a more continuous result which is
+        necessary in cases such as fitting for a redshift. It will however
+        introduce correlations between neighboring bins.
+        - 'photometry' (TODO: not yet implemented) treats each bin as a small
+        filter. This method treats all wavelengths fairly, but will be limited
+        by the lowest signal-to-noise measurement in each bin.
+
+        There are also several choices for how to weight the different flux
+        measurements:
+        - 'uniform': uniform weights given to each original measurement. Note
+        that this implies a uniform weighting in whatever space the wavelengths
+        were chosen in so there is an implicit prior.
+        - 'variance': use the variance of the individual data points for the
+        weighting.
+
+        We require that the new binning is ordered and non overlapping. If the
+        old binning is overlapping or non-continuous we will handle it.
         """
-        wave = self.wave
-        flux = self.flux
-        fluxvar = self.fluxvar
+        new_bin_starts, new_bin_ends = (
+            _parse_wavelength_information(binning_data)
+        )
 
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        if method == 'old':
+            bin_edges = np.hstack([new_bin_starts, new_bin_ends[-1]])
+            return self.apply_binning_old(bin_edges, modification=modification,
+                                          method=method, integrate=integrate,
+                                          interpolate=interpolate)
+        elif method != 'average_interpolate' and method != 'average_point':
+            raise IdrToolsException('Unsupported binning method %s' % method)
 
-        binned_flux = np.zeros(len(bin_centers))
-        binned_fluxvar = np.zeros(len(bin_centers))
-        bin_counts = np.zeros(len(bin_centers))
+        old_bin_starts = self.bin_starts
+        old_bin_ends = self.bin_ends
+        old_flux = self.flux
+        old_fluxvar = self.fluxvar
+
+        if method == 'average_point':
+            # Treat all old data like individual points.
+            bin_centers = (old_bin_starts + old_bin_ends) / 2.
+            old_bin_starts = bin_centers
+            old_bin_ends = bin_centers
+
+        num_new_bins = len(new_bin_starts)
+        num_old_bins = len(old_bin_starts)
+
+        if weighting == 'variance':
+            if old_fluxvar is None:
+                weights = np.ones(num_old_bins, dtype=float)
+            else:
+                weights = 1. / old_fluxvar
+        elif weighting == 'uniform':
+            weights = np.ones(num_old_bins, dtype=float)
+        else:
+            raise IdrToolsException('Unsupported weighting method %s' %
+                                    weighting)
+
+        new_flux_sum = np.zeros(num_new_bins)
+        new_fluxvar_sum = np.zeros(num_new_bins)
+        new_weights = np.zeros(num_new_bins)
+
         new_index = 0
-        for orig_index in range(len(wave)):
-            if wave[orig_index] < bin_edges[new_index]:
-                continue
-            while (new_index < len(bin_centers) and
-                   wave[orig_index] >= bin_edges[new_index+1]):
-                new_index += 1
-            if new_index >= len(bin_centers):
+        for old_index in range(num_old_bins):
+            # Find index of start of old array in new array
+            old_start = old_bin_starts[old_index]
+            old_end = old_bin_ends[old_index]
+
+            while True:
+                if old_start < new_bin_starts[new_index]:
+                    if new_index == 0:
+                        break
+                    new_index -= 1
+                    continue
+
+                if old_start > new_bin_ends[new_index]:
+                    if new_index == num_new_bins - 1:
+                        break
+                    new_index += 1
+                    continue
+
                 break
 
-            binned_flux[new_index] += flux[orig_index]
-            binned_fluxvar[new_index] += fluxvar[orig_index]
-            bin_counts[new_index] += 1
+            if old_start > new_bin_ends[new_index]:
+                continue
 
-        bin_counts[bin_counts == 0] = 1.
-        binned_flux /= bin_counts
-        binned_fluxvar /= (bin_counts * bin_counts)
+            # Split the old bin's data between the new bins.
+            while new_bin_starts[new_index] < old_end:
+                if method == 'average_interpolate':
+                    # Figure out which fraction of the bin we have from the
+                    # interpolation.
+                    overlap_start = max(old_start, new_bin_starts[new_index])
+                    overlap_end = min(old_end, new_bin_ends[new_index])
+                    overlap = overlap_end - overlap_start
+
+                    weight = (
+                        weights[old_index] *
+                        overlap / (old_end - old_start)
+                    )
+                elif method == 'average_point':
+                    # Assign the old bin to this new bin.
+                    weight = weights[old_index]
+
+                new_weights[new_index] += weight
+                new_flux_sum[new_index] += weight * old_flux[old_index]
+                new_fluxvar_sum[new_index] += weight * old_fluxvar[old_index]
+
+                if new_index == num_new_bins - 1:
+                    break
+
+                new_index += 1
+
+            # We almost always go 1 past here, so jump back one to get the
+            # search to start in (usually) the right place.
+            if new_index > 1:
+                new_index -= 1
+
+        mask = new_weights == 0
+
+        new_weights[mask] = 1.
+        new_flux = new_flux_sum / new_weights
+        new_fluxvar = new_fluxvar_sum / new_weights
 
         if integrate:
-            bin_widths = (bin_edges[1:] - bin_edges[:-1])
-            binned_flux *= bin_widths
-            binned_fluxvar *= (bin_widths * bin_widths)
+            bin_widths = new_bin_ends - new_bin_starts
+            new_flux *= bin_widths
+            new_fluxvar *= (bin_widths * bin_widths)
+
+        new_flux[mask] = np.nan
+        new_fluxvar[mask] = np.nan
 
         if modification is None:
             modification = "Rebinned to %d bins in range [%.0f, %.0f]" % (
-                len(bin_centers), np.min(bin_edges), np.max(bin_edges)
+                num_new_bins, new_bin_starts[0], new_bin_ends[-1]
             )
 
         return self.get_modified_spectrum(
             modification,
-            bin_edges=bin_edges,
-            flux=binned_flux,
-            fluxvar=binned_fluxvar
+            bin_starts=new_bin_starts,
+            bin_ends=new_bin_ends,
+            flux=new_flux,
+            fluxvar=new_fluxvar
         )
 
     def bin_by_wavelength(self, width=20, min_wave=3300, max_wave=8600,
-                          integrate=False):
+                          **kwargs):
         """Bin the spectrum in wavelength space
 
         min_wave and max_wave are in angstroms, delta is the bin width in
@@ -443,10 +547,10 @@ class Spectrum(object):
             width, min_wave, max_wave
         )
 
-        return self.apply_binning(bin_edges, modification, integrate=integrate)
+        return self.apply_binning(modification, bin_edges=bin_edges, **kwargs)
 
     def bin_by_velocity(self, velocity=1000, min_wave=3300, max_wave=8600,
-                        integrate=False):
+                        **kwargs):
         """Bin the spectrum in velocity/log-wavelength space
 
         min_wave and max_wave are in angstroms, velocity is in km/s
@@ -463,7 +567,7 @@ class Spectrum(object):
             velocity, min_wave, max_wave
         )
 
-        return self.apply_binning(bin_edges, modification, integrate=integrate)
+        return self.apply_binning(modification, bin_edges=bin_edges, **kwargs)
 
     def apply_reddening(self, rv, ebv, color_law='CCM'):
         if color_law == 'CCM':
@@ -550,8 +654,8 @@ class Spectrum(object):
             restframe = self.restframe
 
         # Check for updates to the wavelength or flux
-        bin_starts, bin_ends = self._parse_wavelength_information(data_dict)
-        flux, fluxvar = self._parse_flux_information(data_dict)
+        bin_starts, bin_ends = _parse_wavelength_information(data_dict)
+        flux, fluxvar = _parse_flux_information(data_dict)
 
         if bin_starts is None:
             bin_starts = self.bin_starts
