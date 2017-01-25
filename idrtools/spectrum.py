@@ -495,7 +495,9 @@ class Spectrum(object):
 
                 new_weights[new_index] += weight
                 new_flux_sum[new_index] += weight * old_flux[old_index]
-                new_fluxvar_sum[new_index] += weight * old_fluxvar[old_index]
+                new_fluxvar_sum[new_index] += (
+                    weight**2 * old_fluxvar[old_index]
+                )
 
                 if new_index == num_new_bins - 1:
                     break
@@ -511,7 +513,7 @@ class Spectrum(object):
 
         new_weights[mask] = 1.
         new_flux = new_flux_sum / new_weights
-        new_fluxvar = new_fluxvar_sum / new_weights
+        new_fluxvar = new_fluxvar_sum / new_weights**2
 
         if integrate:
             bin_widths = new_bin_ends - new_bin_starts
