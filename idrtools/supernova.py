@@ -20,7 +20,7 @@ class Supernova(object):
 
         all_spectra = []
 
-        for exposure, exposure_data in spectra_dict.iteritems():
+        for exposure, exposure_data in spectra_dict.items():
             spectrum = IdrSpectrum(idr_directory, exposure_data, self,
                                    restframe=restframe)
 
@@ -74,7 +74,7 @@ class Supernova(object):
 
     def keys(self):
         """Return a list of keys for the meta"""
-        return self.meta.keys()
+        return list(self.meta.keys())
 
     @property
     def spectra(self):

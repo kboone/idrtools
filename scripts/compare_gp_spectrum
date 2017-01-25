@@ -18,9 +18,9 @@ parser.add_argument('-v', '--velocity', default=1000., type=float)
 
 args = parser.parse_args()
 
-print "Plotting SN %s" % args.sn_name
-print "    GP: %s" % args.gp_name
-print "    IDR: %s" % args.idr
+print("Plotting SN %s" % args.sn_name)
+print("    GP: %s" % args.gp_name)
+print("    IDR: %s" % args.idr)
 
 
 dataset = Dataset.from_idr(basedir + args.idr)
@@ -39,7 +39,7 @@ gp_spectrum = supernova.get_interpolated_spectrum(
 )
 
 
-print "    Phase: %.2f" % spectrum.phase
+print("    Phase: %.2f" % spectrum.phase)
 
 spec_flux = spectrum.flux
 spec_wave = spectrum.wave

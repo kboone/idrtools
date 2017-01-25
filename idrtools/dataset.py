@@ -20,7 +20,7 @@ class Dataset(object):
 
         all_supernovae = []
 
-        for sn_name, sn_meta in idr_meta.iteritems():
+        for sn_name, sn_meta in idr_meta.items():
             try:
                 supernova = Supernova(idr_directory, sn_meta,
                                       restframe=restframe)
@@ -51,7 +51,7 @@ class Dataset(object):
         A new Dataset object will be returned with the filter applied.
         """
         if hasattr(filter_obj, '__call__'):
-            filter_supernovae = filter(filter_obj, self.supernovae)
+            filter_supernovae = list(filter(filter_obj, self.supernovae))
         else:
             if len(self.supernovae) != len(filter_obj):
                 raise IdrToolsException("Invalid selector (wrong length)")
@@ -75,7 +75,7 @@ class Dataset(object):
 
         eg: dataset['target.name', 'salt2.X1']
         """
-        if isinstance(key, basestring):
+        if isinstance(key, str):
             key = (key,)
             single = True
         else:
@@ -136,7 +136,7 @@ class Dataset(object):
         with open(pickle_path) as pickle_file:
             new_meta = pickle.load(pickle_file)
 
-        for sn, sn_dict in new_meta.iteritems():
+        for sn, sn_dict in new_meta.items():
             if sn in self.meta:
                 self.meta[sn].update(sn_dict)
 

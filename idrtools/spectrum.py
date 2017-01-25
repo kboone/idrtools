@@ -171,7 +171,7 @@ def _parse_wavelength_information(data_dict):
 
     if num_wave_keys > 1:
         error = 'Wavelength specified multiple times (keys: %s)!' % (
-            data_dict.keys()
+            list(data_dict.keys())
         )
         raise InvalidDataException(error)
 
@@ -209,7 +209,7 @@ def _parse_flux_information(data_dict):
 
     if num_fluxvar_keys > 1:
         error = 'Flux variance specified multiple times (keys: %s)!' % (
-            data_dict.keys()
+            list(data_dict.keys())
         )
         raise InvalidDataException(error)
 
@@ -790,7 +790,7 @@ class IdrSpectrum(Spectrum):
             path = '%s/%s' % (self.idr_directory, self.meta[key])
         except KeyError:
             if self.restframe and 'idr.spec_merged' in self.meta:
-                print "Did you mean to set restframe=False?"
+                print("Did you mean to set restframe=False?")
             raise
 
         return path
