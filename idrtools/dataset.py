@@ -15,7 +15,7 @@ class Dataset(object):
 
     @classmethod
     def from_idr(cls, idr_directory, restframe=True):
-        with open('%s/META.pkl' % (idr_directory,)) as idr_file:
+        with open('%s/META.pkl' % (idr_directory,), 'rb') as idr_file:
             idr_meta = pickle.load(idr_file)
 
         all_supernovae = []
