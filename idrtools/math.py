@@ -14,6 +14,14 @@ def nmad(x, *args, **kwargs):
     )
 
 
+def nmad2(x, *args, **kwargs):
+    """NMAD without median subtraction"""
+    return 1.4826 * np.median(
+        np.abs(np.asarray(x)),
+        *args, **kwargs
+    )
+
+
 def rms(x):
     x = np.asarray(x)
     return np.sqrt(np.sum(x*x) / len(x))

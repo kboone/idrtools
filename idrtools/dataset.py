@@ -133,8 +133,8 @@ class Dataset(object):
 
     def merge_metadata(self, pickle_path):
         """Merge the metadata from another pickle file"""
-        with open(pickle_path) as pickle_file:
-            new_meta = pickle.load(pickle_file)
+        with open(pickle_path, 'rb') as pickle_file:
+            new_meta = pickle.load(pickle_file, encoding='latin1')
 
         for sn, sn_dict in new_meta.items():
             if sn in self.meta:
@@ -164,7 +164,7 @@ class Dataset(object):
         filter_supernovae = []
 
         for sn in self.supernovae:
-            in_list = sn.name in sn_list
+            in_list = sn.name.encode('ascii') in sn_list
             if ((intersection and in_list) or
                     (not intersection and not in_list)):
                 filter_supernovae.append(sn)
