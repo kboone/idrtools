@@ -1,5 +1,6 @@
 import numpy as np
 import iminuit
+from scipy.stats import binned_statistic
 
 
 def unbiased_std(x):
@@ -98,6 +99,45 @@ def plot_windowed_median(x, y, *args, **kwargs):
 
 def plot_windowed_mean(x, y, *args, **kwargs):
     return plot_windowed_function(x, y, np.mean, *args, **kwargs)
+
+
+def plot_binned_function(x, y, func, *args, scatter=False, **kwargs):
+    from matplotlib import pyplot as plt
+
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    bin_kwargs = {}
+    if 'bins' in kwargs:
+        bin_kwargs['bins'] = kwargs.pop('bins')
+    if 'range' in kwargs:
+        bin_kwargs['range'] = kwargs.pop('range')
+
+    statistic, bin_edges, binnumber = binned_statistic(x, y, func,
+                                                       **bin_kwargs)
+
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
+
+    if scatter:
+        plt.scatter(bin_centers, statistic, *args, **kwargs)
+    else:
+        plt.plot(bin_centers, statistic, *args, **kwargs)
+
+
+def plot_binned_nmad(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, nmad, *args, **kwargs)
+
+
+def plot_binned_rms(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, rms, *args, **kwargs)
+
+
+def plot_binned_median(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, 'median', *args, **kwargs)
+
+
+def plot_binned_mean(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, 'mean', *args, **kwargs)
 
 
 def fit_global_values(id_1, id_2, diffs, weights=None,
