@@ -109,7 +109,7 @@ def plot_windowed_mean(x, y, *args, **kwargs):
     return plot_windowed_function(x, y, np.mean, *args, **kwargs)
 
 
-def plot_binned_function(x, y, func, *args, scatter=False, **kwargs):
+def plot_binned_function(x, y, func, *args, **kwargs):
     from matplotlib import pyplot as plt
 
     x = np.asarray(x)
@@ -120,6 +120,8 @@ def plot_binned_function(x, y, func, *args, scatter=False, **kwargs):
         bin_kwargs['bins'] = kwargs.pop('bins')
     if 'range' in kwargs:
         bin_kwargs['range'] = kwargs.pop('range')
+
+    scatter = kwargs.pop('scatter', False)
 
     statistic, bin_edges, binnumber = binned_statistic(x, y, func,
                                                        **bin_kwargs)
