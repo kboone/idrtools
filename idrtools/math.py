@@ -122,15 +122,7 @@ def plot_binned_function(x, y, func, *args, **kwargs):
         bin_kwargs['range'] = kwargs.pop('range')
 
     # Figure out what kind of plot to make
-    scatter = kwargs.pop('scatter', False)
-    step = kwargs.pop('step', False)
-
-    if scatter:
-        mode = 'scatter'
-    elif step:
-        mode = 'step'
-    else:
-        mode = 'plot'
+    mode = kwargs.pop('mode', 'step')
 
     statistic, bin_edges, binnumber = binned_statistic(x, y, func,
                                                        **bin_kwargs)
@@ -144,7 +136,7 @@ def plot_binned_function(x, y, func, *args, **kwargs):
     elif mode == 'step':
         # Have to do a little hacking here since this isn't really built in.
         plt.step(bin_edges, np.hstack([statistic, statistic[-1]]),
-                 where='post')
+                 where='post', *args, **kwargs)
 
 
 def plot_binned_nmad(x, y, *args, **kwargs):
