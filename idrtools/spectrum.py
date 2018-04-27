@@ -584,6 +584,13 @@ class Spectrum(object):
                  0.62251*y**5 + 5.30260*y**6 - 2.09002*y**7)
             reddening = (a + b/rv) * rv * ebv
             scale = 10 ** (-0.4 * reddening)
+        elif color_law == 'fm07':
+            # TODO: Do this right. FM07 doesn't have a varying R_V!!!
+            import extinction
+            fm_color_law = extinction.fm07(self.wave, 1.)
+            av = ebv * rv
+            reddening = fm_color_law * av
+            scale = 10 ** (-0.4 * reddening)
 
         flux = self.flux * scale
         fluxvar = self.fluxvar * scale * scale

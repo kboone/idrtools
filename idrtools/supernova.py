@@ -233,3 +233,18 @@ class Supernova(object):
         plt.xlabel('Restframe wavelength ($\\AA$)')
         plt.ylabel('Flux + offset')
         plt.title(self)
+
+    def plot_lightcurve(self, min_wave, max_wave, **kwargs):
+        """Plot a lightcurve integrated over the given wavelength range.
+
+        Any kwargs are passed to plt.plot.
+        """
+        mags = np.array([i.get_magnitude(min_wave, max_wave) for i in
+                         self.spectra])
+        phases = self.phases
+
+        plt.scatter(phases, mags, **kwargs)
+
+        plt.xlabel('Phase (days)')
+        plt.ylabel('Magnitude + offset')
+        plt.title(self)

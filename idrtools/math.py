@@ -15,6 +15,14 @@ def nmad(x, *args, **kwargs):
     )
 
 
+def nmad2(x, *args, **kwargs):
+    """NMAD without median subtraction"""
+    return 1.4826 * np.median(
+        np.abs(np.asarray(x)),
+        *args, **kwargs
+    )
+
+
 def rms(x):
     x = np.asarray(x)
     return np.sqrt(np.sum(x*x) / len(x))
@@ -114,6 +122,9 @@ def plot_binned_function(x, y, func, *args, scatter=False, show_errors=False,
     if 'range' in kwargs:
         bin_kwargs['range'] = kwargs.pop('range')
 
+    # Figure out what kind of plot to make
+    mode = kwargs.pop('mode', 'step')
+
     statistic, bin_edges, binnumber = binned_statistic(x, y, func,
                                                        **bin_kwargs)
 
@@ -148,8 +159,12 @@ def plot_binned_function(x, y, func, *args, scatter=False, show_errors=False,
                      *args, **kwargs)
     elif scatter:
         plt.scatter(bin_centers, statistic, *args, **kwargs)
-    else:
+    elif mode == 'plot':
         plt.plot(bin_centers, statistic, *args, **kwargs)
+    elif mode == 'step':
+        # Have to do a little hacking here since this isn't really built in.
+        plt.step(bin_edges, np.hstack([statistic, statistic[-1]]),
+                 where='post', *args, **kwargs)
 
 
 def plot_binned_nmad(x, y, *args, **kwargs):
