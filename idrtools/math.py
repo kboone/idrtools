@@ -109,7 +109,8 @@ def plot_windowed_mean(x, y, *args, **kwargs):
     return plot_windowed_function(x, y, np.mean, *args, **kwargs)
 
 
-def plot_binned_function(x, y, func, *args, **kwargs):
+def plot_binned_function(x, y, func, *args, scatter=False, show_errors=False,
+                         **kwargs):
     from matplotlib import pyplot as plt
 
     x = np.asarray(x)
@@ -129,7 +130,34 @@ def plot_binned_function(x, y, func, *args, **kwargs):
 
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
 
-    if mode == 'scatter':
+    if show_errors:
+        # For median use NMAD for errors, for mean use std.
+        if func == 'median':
+            err_func = nmad
+        elif func == 'mean':
+            err_func = np.std
+        else:
+            raise Exception("Can't do errors for given function! (%s)" % func)
+
+        err_statistic, err_bin_edges, err_binnumber = binned_statistic(
+            x, y, err_func, **bin_kwargs
+        )
+
+        if 'fmt' not in kwargs:
+            kwargs['fmt'] = 'none'
+
+        assert np.all(err_binnumber == binnumber)
+
+        bin_counts = np.array([np.sum(err_binnumber == i+1) for i in
+                               range(len(err_statistic))])
+        mask = bin_counts < 2
+        bin_counts[mask] = 2
+        errors = err_statistic / np.sqrt(bin_counts - 1)
+        errors[mask] = np.nan
+        bin_half_widths = (bin_edges[:-1] - bin_edges[1:]) / 2.
+        plt.errorbar(bin_centers, statistic, yerr=errors, xerr=bin_half_widths,
+                     *args, **kwargs)
+    elif scatter:
         plt.scatter(bin_centers, statistic, *args, **kwargs)
     elif mode == 'plot':
         plt.plot(bin_centers, statistic, *args, **kwargs)

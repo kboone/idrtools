@@ -329,7 +329,7 @@ class Spectrum(object):
             raise InvalidDataException(error)
 
     def __str__(self):
-        return self.meta[self.meta['idrtools.keys.name']]
+        return self.name
 
     def __repr__(self):
         return '%s(name="%s")' % (type(self).__name__, str(self))
@@ -352,6 +352,10 @@ class Spectrum(object):
     def __ge__(self, other):
         """Order by the string name"""
         return str(self) >= str(other)
+
+    @property
+    def name(self):
+        return self.meta[self.meta['idrtools.keys.name']]
 
     @property
     def usable(self):
@@ -935,6 +939,7 @@ class IdrSpectrum(Spectrum):
             self.meta['fits.latitude'] = header['LATITUDE']
             self.meta['fits.longitude'] = header['LONGITUD']
             self.meta['fits.efftime'] = header['EFFTIME']
+            self.meta['fits.exptime'] = header['EXPTIME']
             # self.meta['fits.utc'] = header['UTC']
 
             # self.meta['fits.hinsid'] = header['HINSID']
