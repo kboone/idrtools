@@ -9,11 +9,11 @@ from astropy.io import fits
 import numpy as np
 
 from .tools import InvalidMetaDataException, SpectrumBoundsException, \
-    InvalidDataException, IdrToolsException
+    InvalidDataException, IdrToolsException, snf_filters
 
 
-def _get_magnitude(wave, flux, min_wave, max_wave):
-    """Calculate the AB magnitude for a given tophat filter.
+def _get_band_flux(wave, flux, min_wave, max_wave, flux_err=None):
+    """Calculate the AB flux for a given tophat filter.
 
     Flux should be in erg/cm^2/s/A to get the right normalization.
 
@@ -44,38 +44,57 @@ def _get_magnitude(wave, flux, min_wave, max_wave):
     h = 6.626070040e-34
     c = 2.99792458e18
 
-    phot_flux = flux * 10**-7 / h / c * wave
+    conversion_factor = 10**-7 / h / c * wave
+
+    phot_flux = flux * conversion_factor
 
     # Find the reference flux for the AB mag system. This is 3.631e-20
     # erg/cm^2/s/Hz which we need to convert to phot/cm^2/s/A
-    ref_flux = 3.631e-20 * (10**-7 / h / c * wave) * (c / wave**2)
+    ref_flux = 3.631e-20 * conversion_factor * (c / wave**2)
 
     wave_cut = (wave > min_wave) & (wave < max_wave)
 
     sum_flux = np.sum((phot_flux*bin_widths)[wave_cut])
     sum_ref_flux = np.sum((ref_flux*bin_widths)[wave_cut])
 
-    result = -2.5*np.log10(sum_flux / sum_ref_flux)
+    band_flux = sum_flux / sum_ref_flux
 
-    return result
+    if flux_err is None:
+        return band_flux
+    else:
+        phot_flux_err = flux_err * conversion_factor
+        sum_flux_var = np.sum(((phot_flux_err * bin_widths)**2)[wave_cut])
+
+        band_flux_var = sum_flux_var / sum_ref_flux**2
+        band_flux_err = np.sqrt(band_flux_var)
+
+        return band_flux, band_flux_err
 
 
-def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
-                       restframe=True, redshift=0.):
-    """Calculate the AB magnitude for a given SNf filter.
+def _get_magnitude(wave, flux, min_wave, max_wave, flux_err=None):
+    """Calculate the AB magnitude for a given tophat filter.
 
-    These numbers will agree with the SNf filter data in the headers if you
-    use the observer frame filters (i.e. restframe=False) and convert from
-    Vega to AB (a constant).
+    Flux should be in erg/cm^2/s/A to get the right normalization.
     """
-    filter_edges = {
-        'u': (3300., 4102.),
-        'b': (4102., 5100.),
-        'v': (5200., 6289.),
-        'r': (6289., 7607.),
-        'i': (7607., 9200.)
-    }
-    min_wave, max_wave = filter_edges[filter_name.lower()]
+    band_flux = _get_band_flux(
+        wave, flux, min_wave, max_wave, flux_err=flux_err
+    )
+
+    if flux_err is not None:
+        band_flux, band_flux_err = band_flux
+
+    mag = -2.5*np.log10(band_flux)
+
+    if flux_err is None:
+        return mag
+    else:
+        mag_err = (2.5 / np.log(10) / band_flux) * band_flux_err
+        return mag, mag_err
+
+
+def _get_snf_filter(filter_name, spec_restframe, restframe, redshift):
+    """Retrieve the edges of an SNf filter"""
+    min_wave, max_wave = snf_filters[filter_name.lower()]
 
     scale = 1.
 
@@ -89,7 +108,32 @@ def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
     min_wave *= scale
     max_wave *= scale
 
-    return _get_magnitude(wave, flux, min_wave, max_wave)
+    return min_wave, max_wave
+
+
+def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
+                       restframe=True, redshift=0., flux_err=None):
+    """Calculate the AB magnitude for a given SNf filter.
+
+    These numbers will agree with the SNf filter data in the headers if you
+    use the observer frame filters (i.e. restframe=False) and convert from
+    Vega to AB (a constant).
+    """
+    min_wave, max_wave = _get_snf_filter(
+        filter_name, spec_restframe, restframe, redshift
+    )
+
+    return _get_magnitude(wave, flux, min_wave, max_wave, flux_err=flux_err)
+
+
+def _get_snf_band_flux(wave, flux, filter_name, spec_restframe=True,
+                       restframe=True, redshift=0., flux_err=None):
+    """Calculate the AB flux for a given SNf filter."""
+    min_wave, max_wave = _get_snf_filter(
+        filter_name, spec_restframe, restframe, redshift
+    )
+
+    return _get_band_flux(wave, flux, min_wave, max_wave, flux_err=flux_err)
 
 
 def _recover_bin_edges(bin_centers):
@@ -725,19 +769,59 @@ class Spectrum(object):
         plt.ylabel('Flux')
         plt.title(self)
 
-    def get_magnitude(self, min_wave, max_wave):
+    def get_magnitude(self, min_wave, max_wave, calculate_error=False):
         """Calculate the AB magnitude for a given tophat filter."""
-        return _get_magnitude(self.wave, self.flux, min_wave, max_wave)
+        if calculate_error:
+            flux_err = self.fluxerr
+        else:
+            flux_err = None
 
-    def get_snf_magnitude(self, filter_name, restframe=True):
+        return _get_magnitude(self.wave, self.flux, min_wave, max_wave,
+                              flux_err)
+
+    def get_snf_magnitude(self, filter_name, restframe=True,
+                          calculate_error=False):
         """Calculate the AB magnitude for a given SNf filter.
 
         These numbers will agree with the SNf filter data in the headers if you
         use the observer frame filters (i.e. restframe=False) and convert from
         Vega to AB (a constant).
         """
+        if calculate_error:
+            flux_err = self.fluxerr
+        else:
+            flux_err = None
+
         return _get_snf_magnitude(self.wave, self.flux, filter_name,
-                                  self.restframe, restframe, self.redshift)
+                                  self.restframe, restframe, self.redshift,
+                                  flux_err)
+
+    def get_band_flux(self, min_wave, max_wave, calculate_error=False):
+        """Calculate the AB flux for a given tophat filter."""
+        if calculate_error:
+            flux_err = self.fluxerr
+        else:
+            flux_err = None
+
+        return _get_band_flux(self.wave, self.flux, min_wave, max_wave,
+                              flux_err)
+
+    def get_snf_band_flux(self, filter_name, restframe=True,
+                          calculate_error=False):
+        """Calculate the AB flux for a given SNf filter.
+
+        These numbers will agree with the SNf filter data in the headers if you
+        use the observer frame filters (i.e. restframe=False) and convert from
+        Vega to AB (a constant).
+        """
+        if calculate_error:
+            flux_err = self.fluxerr
+        else:
+            flux_err = None
+
+        return _get_snf_band_flux(self.wave, self.flux, filter_name,
+                                  self.restframe, restframe, self.redshift,
+                                  flux_err)
 
 
 class IdrSpectrum(Spectrum):
@@ -777,11 +861,32 @@ class IdrSpectrum(Spectrum):
         self.meta['idrtools.keys.phase'] = phase_key
 
         # Check if the spectrum is good or not. We drop everything that is
-        # flagged in the IDR for now.
+        # flagged in the IDR with one of the "bad" flags.
+        bad_flags = [
+            "ES_PRIOR_POSITION",
+            "ES_PRIOR_SEEING",
+            "ES_PRIOR_AIRMASS",
+            "ES_PRIOR_PARANGLE",
+            "ES_MIS-CENTERED",
+            "PFC_XNIGHT",
+            "PFC_RELFLX",
+        ]
+        good_flags = [
+            "ARTIFICIAL_ARC",
+        ]
         try:
-            if (self.meta['procB.Quality'] != 1 or
-                    self.meta['procR.Quality'] != 1):
-                self.usable = False
+            all_flags = self.meta['procB.Flags'] + self.meta['procR.Flags']
+
+            usable = True
+
+            for flag in all_flags:
+                if flag in bad_flags:
+                    # print("Not using %s for %s" % (self, flag))
+                    usable = False
+                elif flag not in good_flags:
+                    print("WARNING: Unknown flag %s!" % flag)
+
+            self.usable = usable
         except KeyError:
             pass
 

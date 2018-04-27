@@ -1,8 +1,16 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from astropy.table import Table
+
+try:
+    import sncosmo
+except ModuleNotFoundError:
+    # sncosmo is required for fitting, but I don't always have it installed.
+    # Just error out if the fit is called. in that case.
+    sncosmo = None
 
 from .spectrum import IdrSpectrum, Spectrum
-from .tools import InvalidMetaDataException
+from .tools import InvalidMetaDataException, IdrToolsException
 
 
 class Supernova(object):
@@ -80,7 +88,7 @@ class Supernova(object):
     def spectra(self):
         """Return the list of spectra that are usable for this supernova.
 
-        Spectra that have been flagged an unusable will not be in this list.
+        Spectra that have been flagged as unusable will not be in this list.
         """
         return np.array([i for i in self.all_spectra if i.usable])
 
@@ -248,3 +256,123 @@ class Supernova(object):
         plt.xlabel('Phase (days)')
         plt.ylabel('Magnitude + offset')
         plt.title(self)
+
+    def get_photometry(self, filters='BVR'):
+        redshift = self.meta['host.zhelio']
+        day_max = self.meta['salt2.DayMax']
+
+        data = []
+        for spectrum in self.spectra:
+            for filter_name in filters:
+                flux, flux_error = spectrum.get_snf_band_flux(
+                    filter_name, calculate_error=True
+                )
+
+                # SNf-pipeline calculated photometry. This doesn't work for
+                # fitting because it isn't in restframe.
+                # mag = spectrum.meta['mag.%sSNf' % filter_name.upper()]
+                # mag_err = spectrum.meta['mag.%sSNf.err' % filter_name.upper()]
+                # if np.isnan(mag) or np.isnan(mag_err):
+                    # continue
+                # flux = 10**(-0.4 * mag)
+                # flux_error = mag_err * flux / (2.5 / np.log(10))
+
+                # We are fitting with restframe data in the restframe. Need to
+                # normalize the MJDs to account for this. We use the initial
+                # SALT2 fit for the date of maximum, so the peak of the LC
+                # should be close to 0 (although we don't include corrections
+                # for B-max)
+                mjd = spectrum.meta['fits.mjd']
+                time = (mjd - day_max) / (1 + redshift)
+
+                if time > 45. or time < -15.:
+                    # Outside of SALT2 model range, ignore.
+                    continue
+
+                scaling = -20.
+                zeropoint = 0.
+
+                total_scale = 10**(-0.4 * (zeropoint + scaling))
+
+                data.append({
+                    'time': time,
+                    'band': 'snf%s' % (filter_name.lower()),
+                    'flux': flux / total_scale,
+                    'fluxerr': flux_error / total_scale,
+                    'zp': zeropoint,
+                    'zpsys': 'ab',
+                })
+
+        data = Table(data)
+
+        # Apply a correction to the error. Currently in the SNf pipeline, the
+        # errors are rescaled so that the median is 0.05 mag acros the B, V and
+        # R filters. This is an implementation of that.
+        mag_scale = 2.5 / np.log(10)
+        mag_error = mag_scale * data['fluxerr'] / data['flux']
+
+        # rescaled_mag_error = mag_error * 0.05 / np.median(mag_error)
+        rescaled_mag_error = np.sqrt(mag_error**2 + 0.05**2)
+
+        rescaled_flux_error = rescaled_mag_error * data['flux'] / mag_scale
+
+        data['fluxerr_unscaled'] = data['fluxerr']
+        data['fluxerr'] = rescaled_flux_error
+        data['magerr'] = rescaled_mag_error
+
+        return data
+
+    def fit_salt(self, filters='BVR', plot=False, use_previous_start=False,
+                 start_vals={}):
+        if sncosmo is None:
+            raise IdrToolsException(
+                "sncosmo not found. Install sncosmo for fitting"
+            )
+
+        photometry = self.get_photometry(filters)
+
+        model = sncosmo.Model(source='salt2')
+
+        # Note, everything has been shifted to restframe. The times have been
+        # shifted using the previously estimated day of maximum to get to 0.
+
+        model.set(z=0.)
+        model.set(t0=0.)
+
+        if use_previous_start:
+            # Start at the result of the previous SALT2 fit.
+            model.set(x1=self.meta['salt2.X1'])
+            model.set(c=self.meta['salt2.Color'])
+
+        model.set(**start_vals)
+
+        result, fitted_model = sncosmo.fit_lc(
+            photometry,
+            model,
+            ['t0', 'x0', 'x1', 'c'],
+            bounds={
+                'x1': (-10, 10),
+                'c': (-1, 10),
+                't0': (-5, 5),
+            },
+            guess_t0=False,
+            modelcov=True,
+        )
+
+        if plot:
+            sncosmo.plot_lc(photometry, model=fitted_model,
+                            errors=result.errors)
+
+        result_dict = {
+            't0': fitted_model['t0'],
+            'x0': fitted_model['x0'],
+            'x1': fitted_model['x1'],
+            'c': fitted_model['c'],
+
+            't0_err': result['errors']['t0'],
+            'x0_err': result['errors']['x0'],
+            'x1_err': result['errors']['x1'],
+            'c_err': result['errors']['c'],
+        }
+
+        return result_dict
