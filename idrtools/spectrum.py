@@ -176,7 +176,7 @@ def _parse_wavelength_information(data_dict):
     for bins. However, users typically have ether a list of wavelengths
     or a list of bin edges. We support all of the above with the
     following keys:
-    - wave or bin_centers
+    - wave or wavelength or bin_centers
     - bin_edges
     - bin_starts, bin_ends
 
@@ -204,12 +204,10 @@ def _parse_wavelength_information(data_dict):
 
     # Bin centers specified
     bin_centers = None
-    if 'wave' in data_dict:
-        num_wave_keys += 1
-        bin_centers = data_dict['wave']
-    if 'bin_centers' in data_dict:
-        num_wave_keys += 1
-        bin_centers = data_dict['bin_centers']
+    for key in ['wave', 'wavelength', 'bin_centers']:
+        if key in data_dict:
+            num_wave_keys += 1
+            bin_centers = data_dict[key]
     if bin_centers is not None:
         bin_starts, bin_ends = _recover_bin_edges(bin_centers)
 
@@ -261,12 +259,16 @@ def _parse_flux_information(data_dict):
 
 
 class Spectrum(object):
-    def __init__(self, meta={}, target=None, **data_dict):
+    def __init__(self, meta={}, target=None, redshift=None,
+                 name='unnamed_spectrum', phase=None, target_name=None,
+                 **data_dict):
         """Initialize the spectrum.
 
         Data can be optionally passed in with a variety of keywords.
         """
-        self.meta = self._get_default_meta()
+        self.meta = self._get_default_meta(
+            redshift=redshift, name=name, phase=phase, target_name=target_name
+        )
         self.meta.update(meta)
 
         # Parse the data that was passed in.
@@ -274,7 +276,7 @@ class Spectrum(object):
 
         self.target = target
 
-    def _get_default_meta(self):
+    def _get_default_meta(self, redshift, name, phase, target_name):
         """Default meta for a new spectrum"""
         meta = {}
 
@@ -286,10 +288,10 @@ class Spectrum(object):
         meta['idrtools.keys.target_name'] = 'idrtools.target_name'
 
         # Default keys
-        meta['idrtools.redshift'] = None
-        meta['idrtools.name'] = None
-        meta['idrtools.phase'] = None
-        meta['idrtools.target_name'] = None
+        meta['idrtools.redshift'] = redshift
+        meta['idrtools.name'] = name
+        meta['idrtools.phase'] = phase
+        meta['idrtools.target_name'] = target_name
 
         return meta
 
@@ -301,6 +303,77 @@ class Spectrum(object):
         self._flux, self._fluxvar = _parse_flux_information(data_dict)
 
         self._validate_data()
+
+    @classmethod
+    def load_fits(cls, fits_file, data_extension=0, variance_extension=1):
+        """Load data from a fits file.
+
+        fits_file can either be an astropy fits HDUList object or a string
+        which is the path to the file to open.
+
+        By default, the data is loaded from extension 0, and the variance is
+        loaded from extension 1 if it exists. These extensions can be
+        modified with the data_extension and variance_extension arguments. If
+        variance_extension is set to None, or if is set to a non-existent
+        extension, then it isn't loaded at all.
+        """
+        if not isinstance(fits_file, fits.HDUList):
+            fits_file = fits.open(fits_file)
+
+        header = fits_file[0].header
+        cdelt1 = header['CDELT1']
+        naxis1 = header['NAXIS1']
+        crval1 = header['CRVAL1']
+
+        wave = crval1 + cdelt1 * np.arange(naxis1)
+
+        flux = np.copy(fits_file[data_extension].data)
+
+        variance = None
+        if (variance_extension is not None and
+                len(fits_file) > variance_extension):
+            variance = np.copy(fits_file[variance_extension].data)
+
+        # Try to find the target name.
+        target_name_keys = ['OBJECT', 'TARGET']
+        for key in target_name_keys:
+            if key in header:
+                target_name = header[key]
+                break
+        else:
+            target_name = 'unknown_target'
+
+        # Try to find the spectrum name
+        spectrum_name_keys = ['OBSID']
+        for key in spectrum_name_keys:
+            if key in header:
+                spectrum_name = header[key]
+                break
+        else:
+            spectrum_name = 'unknown_spectrum'
+
+        meta = {}
+
+        # Copy all fits header items into the meta dictionary.
+        for key, value in header.items():
+            meta['fits.%s' % key] = value
+
+        # If it is an SNf object, figure out the night
+        if 'OBSID' in header:
+            obsid = header['OBSID']
+            night = obsid[:6]
+            meta['fits.night'] = night
+
+        fits_file.close()
+
+        new_object = cls(meta=meta, wave=wave, flux=flux, fluxvar=variance,
+                         name=spectrum_name, target_name=target_name,
+                         redshift=0.)
+
+        # Hack... need to refactor all of this to make sense.
+        new_object.restframe = False
+
+        return new_object
 
     def _validate_data(self):
         """Validate the data in this spectrum.
@@ -321,7 +394,7 @@ class Spectrum(object):
             if num_wave != len(self._flux):
                 error = ('Must have the same number of wavelength and flux'
                          'elements!')
-            elif num_wave != len(self._fluxvar):
+            elif self._fluxvar is not None and num_wave != len(self._fluxvar):
                 error = ('Must have the same number of wavelength and fluxvar'
                          'elements!')
 
@@ -332,7 +405,8 @@ class Spectrum(object):
         return self.name
 
     def __repr__(self):
-        return '%s(name="%s")' % (type(self).__name__, str(self))
+        return '%s(target="%s", name="%s")' % (type(self).__name__,
+                                               self.target_name, self.name)
 
     def __getitem__(self, key):
         return self.meta[key]
@@ -497,8 +571,9 @@ class Spectrum(object):
                                     weighting)
 
         new_flux_sum = np.zeros(num_new_bins)
-        new_fluxvar_sum = np.zeros(num_new_bins)
         new_weights = np.zeros(num_new_bins)
+        if old_fluxvar is not None:
+            new_fluxvar_sum = np.zeros(num_new_bins)
 
         new_index = 0
         for old_index in range(num_old_bins):
@@ -543,9 +618,10 @@ class Spectrum(object):
 
                 new_weights[new_index] += weight
                 new_flux_sum[new_index] += weight * old_flux[old_index]
-                new_fluxvar_sum[new_index] += (
-                    weight**2 * old_fluxvar[old_index]
-                )
+                if old_fluxvar is not None:
+                    new_fluxvar_sum[new_index] += (
+                        weight**2 * old_fluxvar[old_index]
+                    )
 
                 if new_index == num_new_bins - 1:
                     break
@@ -561,15 +637,20 @@ class Spectrum(object):
 
         new_weights[mask] = 1.
         new_flux = new_flux_sum / new_weights
-        new_fluxvar = new_fluxvar_sum / new_weights**2
+        if old_fluxvar is None:
+            new_fluxvar = None
+        else:
+            new_fluxvar = new_fluxvar_sum / new_weights**2
 
         if integrate:
             bin_widths = new_bin_ends - new_bin_starts
             new_flux *= bin_widths
-            new_fluxvar *= (bin_widths * bin_widths)
+            if old_fluxvar is not None:
+                new_fluxvar *= (bin_widths * bin_widths)
 
         new_flux[mask] = np.nan
-        new_fluxvar[mask] = np.nan
+        if old_fluxvar is not None:
+            new_fluxvar[mask] = np.nan
 
         if modification is None:
             modification = "Rebinned to %d bins in range [%.0f, %.0f]" % (
@@ -637,7 +718,10 @@ class Spectrum(object):
             scale = 10 ** (-0.4 * reddening)
 
         flux = self.flux * scale
-        fluxvar = self.fluxvar * scale * scale
+        if self.fluxvar is None:
+            fluxvar = None
+        else:
+            fluxvar = self.fluxvar * scale * scale
 
         modification = "Applied color law %s with R_V=%.2f, E(B-V)=%.3f" % (
             color_law, rv, ebv
@@ -651,7 +735,10 @@ class Spectrum(object):
 
     def apply_scale(self, scale):
         flux = self.flux * scale
-        fluxvar = self.fluxvar * scale * scale
+        if self.fluxvar is None:
+            fluxvar = None
+        else:
+            fluxvar = self.fluxvar * scale * scale
 
         modification = "Applied scale of %s" % scale
 
@@ -671,7 +758,10 @@ class Spectrum(object):
         noise = noise_std * np.random.randn(len(self.wave))
 
         flux = self.flux + noise
-        fluxvar = self.fluxvar + noise_std**2
+        if self.fluxvar is None:
+            fluxvar = None
+        else:
+            fluxvar = self.fluxvar + noise_std**2
 
         modification = "Applied noise of %s" % np.median(fraction)
 
