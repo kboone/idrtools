@@ -3,41 +3,42 @@ import numpy as np
 import os
 import pickle
 
-from .supernova import Supernova
+from .target import Target
 from .tools import IdrToolsException, InvalidMetaDataException
 
 
 class Dataset(object):
-    def __init__(self, idr_directory, supernovae, meta):
+    def __init__(self, idr_directory, targets, meta):
         self.idr_directory = idr_directory
-        self.supernovae = sorted(supernovae)
+        self.targets = sorted(targets)
         self.meta = meta
 
     @classmethod
-    def from_idr(cls, idr_directory, restframe=True):
+    def from_idr(cls, idr_directory, restframe=True, load_both_headers=False):
         with open('%s/META.pkl' % (idr_directory,), 'rb') as idr_file:
             idr_meta = pickle.load(idr_file)
 
-        all_supernovae = []
+        all_targets = []
 
-        for sn_name, sn_meta in idr_meta.items():
+        for target_name, target_meta in idr_meta.items():
             try:
-                supernova = Supernova(idr_directory, sn_meta,
-                                      restframe=restframe)
-                all_supernovae.append(supernova)
+                target = Target(idr_directory, target_meta,
+                                restframe=restframe,
+                                load_both_headers=load_both_headers)
+                all_targets.append(target)
             except InvalidMetaDataException:
                 # The IDR contains weird entries sometimes (eg: a key of
                 # DATASET with no entries). Ignore them.
                 pass
 
-        return cls(idr_directory, all_supernovae, idr_meta)
+        return cls(idr_directory, all_targets, idr_meta)
 
     def __str__(self):
         return os.path.basename(self.idr_directory)
 
     def __repr__(self):
-        return 'Dataset(idr="%s", num_sn=%d)' % (
-            str(self), len(self.supernovae)
+        return 'Dataset(idr="%s", num_targets=%d)' % (
+            str(self), len(self.targets)
         )
 
     def filter(self, filter_obj):
@@ -45,30 +46,29 @@ class Dataset(object):
 
         filter_obj can be either a function, or a mask.
 
-        if filter_obj is a function, then it should take a Supernova object,
+        if filter_obj is a function, then it should take a Target object,
         and return True/False indicating whether to keep or discard the object.
 
         A new Dataset object will be returned with the filter applied.
         """
         if hasattr(filter_obj, '__call__'):
-            filter_supernovae = list(filter(filter_obj, self.supernovae))
+            filter_targets = list(filter(filter_obj, self.targets))
         else:
-            if len(self.supernovae) != len(filter_obj):
+            if len(self.targets) != len(filter_obj):
                 raise IdrToolsException("Invalid selector (wrong length)")
-            filter_supernovae = list(itertools.compress(self.supernovae,
-                                                        filter_obj))
+            filter_targets = list(itertools.compress(self.targets, filter_obj))
 
-        return Dataset(self.idr_directory, filter_supernovae, self.meta)
+        return Dataset(self.idr_directory, filter_targets, self.meta)
 
     def get_subset(self, subset):
         """Return a subset of the data, based on the idr.subset entry
 
         eg: training, validation, bad.
         """
-        return self.filter(lambda sn: sn.subset == subset)
+        return self.filter(lambda target: target.subset == subset)
 
     def __getitem__(self, key):
-        """Return a numpy array of properties for the SNe.
+        """Return a numpy array of properties for the targets.
 
         If key is a tuple, then a two-dimensional array is returned. The keys
         can be any property in the IDR.
@@ -81,7 +81,7 @@ class Dataset(object):
         else:
             single = False
 
-        data = [tuple((sn[i] for i in key)) for sn in self.supernovae]
+        data = [tuple((target[i] for i in key)) for target in self.targets]
 
         result = np.rec.fromrecords(data, names=key)
 
@@ -91,31 +91,31 @@ class Dataset(object):
         return result
 
     def keys(self, intersection=False):
-        """Return a list of keys that are available for the SNe.
+        """Return a list of keys that are available for the targets..
 
         This is a union of all keys by default. An intersection of available
         keys can be obtained by setting intersection=True
         """
         all_keys = set()
 
-        for sn in self.supernovae:
+        for target in self.targets:
             if intersection:
-                all_keys = all_keys.intersection(sn.keys())
+                all_keys = all_keys.intersection(target.keys())
             else:
-                all_keys = all_keys.union(sn.keys())
+                all_keys = all_keys.union(target.keys())
 
         return all_keys
 
     def get_nearest_spectra(self, phase, max_diff=None):
-        """Return the spectrum for each supernova closest to the given phase
+        """Return the spectrum for each target closest to the given phase
 
-        If the nearest spectrum for a supernova is off by more than max_diff,
+        If the nearest spectrum for a target is off by more than max_diff,
         then it is omitted from the final sample.
         """
         all_spectra = []
 
-        for sn in self.supernovae:
-            spectrum = sn.get_nearest_spectrum(phase, max_diff)
+        for target in self.targets:
+            spectrum = target.get_nearest_spectrum(phase, max_diff)
             if spectrum is not None:
                 all_spectra.append(spectrum)
 
@@ -125,8 +125,8 @@ class Dataset(object):
         """Return a list of spectra within a phase range"""
         all_spectra = []
 
-        for sn in self.supernovae:
-            spectra = sn.get_spectra_in_range(min_phase, max_phase)
+        for target in self.targets:
+            spectra = target.get_spectra_in_range(min_phase, max_phase)
             all_spectra.extend(spectra)
 
         return np.array(all_spectra)
@@ -136,40 +136,40 @@ class Dataset(object):
         with open(pickle_path, 'rb') as pickle_file:
             new_meta = pickle.load(pickle_file, encoding='latin1')
 
-        for sn, sn_dict in new_meta.items():
-            if sn in self.meta:
-                self.meta[sn].update(sn_dict)
+        for target, target_dict in new_meta.items():
+            if target in self.meta:
+                self.meta[target].update(target_dict)
 
-    def cut_supernova(self, supernova_name):
-        """Cut a single supernova from the dataset by name."""
-        filter_supernovae = []
-        for sn in self.supernovae:
-            if sn.name != supernova_name:
-                filter_supernovae.append(sn)
+    def cut_target(self, target_name):
+        """Cut a single target from the dataset by name."""
+        filter_targets = []
+        for target in self.targets:
+            if target.name != target_name:
+                filter_targets.append(target)
 
-        if len(filter_supernovae) == len(self.supernovae):
-            raise IdrToolsException("No supernova found with name %s!" %
-                                    supernova_name)
+        if len(filter_targets) == len(self.targets):
+            raise IdrToolsException("No target found with name %s!" %
+                                    target_name)
 
-        return Dataset(self.idr_directory, filter_supernovae, self.meta)
+        return Dataset(self.idr_directory, filter_targets, self.meta)
 
-    def cut_supernova_list(self, sn_list, intersection=False):
-        """Cut the dataset to a list of supernovae.
+    def cut_target_list(self, target_list, intersection=False):
+        """Cut the dataset to a list of targets.
 
-        If intersection is True, then supernovae in the list are kept.
-        Otherwise, supernovae in the list are rejected.
+        If intersection is True, then targets in the list are kept.
+        Otherwise, targets in the list are rejected.
         """
-        sn_list = np.genfromtxt(sn_list, dtype=None)
+        target_list = np.genfromtxt(target_list, dtype=None)
 
-        filter_supernovae = []
+        filter_targets = []
 
-        for sn in self.supernovae:
-            in_list = sn.name.encode('ascii') in sn_list
+        for target in self.targets:
+            in_list = target.name.encode('ascii') in target_list
             if ((intersection and in_list) or
                     (not intersection and not in_list)):
-                filter_supernovae.append(sn)
+                filter_targets.append(target)
 
-        return Dataset(self.idr_directory, filter_supernovae, self.meta)
+        return Dataset(self.idr_directory, filter_targets, self.meta)
 
     def cut_bad_spectra(self, spectra_list, intersection=False):
         """Cut a list of spectra from the dataset.
@@ -179,15 +179,15 @@ class Dataset(object):
         """
         spectra_list = np.genfromtxt(spectra_list, dtype=None)
 
-        for supernova in self.supernovae:
-            for spectrum in supernova.spectra:
+        for target in self.targets:
+            for spectrum in target.spectra:
                 in_list = spectrum['obs.exp'] in spectra_list
                 if ((intersection and not in_list) or
                         (not intersection and in_list)):
                     spectrum.usable = False
 
-    def get_supernova(self, name):
-        """Find a supernova that matches the given name.
+    def get_target(self, name):
+        """Find a target that matches the given name.
 
         name can be the full name or a subset. If more than one item is
         matched, an Exception will be raised
@@ -197,13 +197,13 @@ class Dataset(object):
 
         result = None
 
-        for sn in self.supernovae:
-            if name in str(sn).lower():
+        for target in self.targets:
+            if name in str(target).lower():
                 if result is not None:
                     raise IdrToolsException(
-                        "More than one SN matches %s!" % name
+                        "More than one target matches %s!" % name
                     )
 
-                result = sn
+                result = target
 
         return result

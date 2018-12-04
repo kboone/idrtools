@@ -1,6 +1,6 @@
 from .tools import IdrToolsException
 from .spectrum import IdrSpectrum, ModifiedSpectrum, Spectrum
-from .supernova import Supernova
+from .target import Target
 from .dataset import Dataset
 from . import math
 
