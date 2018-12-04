@@ -17,6 +17,7 @@ class InterpolationException(IdrToolsException):
 class SpectrumBoundsException(IdrToolsException):
     pass
 
+
 snf_filters = {
     'u': (3300., 4102.),
     'b': (4102., 5100.),
@@ -37,7 +38,7 @@ try:
         )
 
         sncosmo.register(band)
-except ModuleNotFoundError:
+except ImportError:
     # sncosmo is required for fitting, but I don't always have it installed.
     # Everything but the fitting code will work fine.
     pass
