@@ -917,9 +917,33 @@ class Spectrum(object):
                                   self.restframe, restframe, self.redshift,
                                   flux_err)
 
+    def get_signal_to_noise(self, min_wave=None, max_wave=None):
+        """Calculate the signal-to-noise for a given tophat filter.
+        
+        If min_wave or max_wave are None, the calculation goes up to the edge
+        of the spectrum.
+        """
+        if min_wave is None:
+            min_wave = self.wave[0]
+        if max_wave is None:
+            max_wave = self.wave[-1]
+
+        flux, flux_err = self.get_band_flux(min_wave, max_wave,
+                                            calculate_error=True)
+
+        return flux / flux_err
+
+    def get_snf_signal_to_noise(self, filter_name, **kwargs):
+        """Calculate the signal-to-noise for a given SNf filter."""
+        flux, flux_err = self.get_snf_band_flux(filter_name,
+                                                calculate_error=True, **kwargs)
+
+        return flux / flux_err
+
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, target, restframe=True):
+    def __init__(self, idr_directory, meta, target, restframe=True,
+                 load_both_headers=False):
         super(IdrSpectrum, self).__init__(meta, target)
 
         # Lazy load the wave and flux when we actually use them. This makes
@@ -927,6 +951,7 @@ class IdrSpectrum(Spectrum):
         self.idr_directory = idr_directory
 
         self.restframe = restframe
+        self.load_both_headers = load_both_headers
 
         # Update meta keys
         self.meta['idrtools.keys.name'] = 'idr.prefix'
@@ -1001,6 +1026,22 @@ class IdrSpectrum(Spectrum):
 
         return path
 
+    def _load_header(self, header, file_prefix=""):
+        for keyword in header:
+            if '_' in keyword:
+                prefix, suffix = keyword.split('_', 1)
+            else:
+                prefix = 'fits'
+                suffix = keyword
+
+            prefix = prefix.lower()
+            suffix = suffix.lower()
+
+            if file_prefix:
+                prefix = '%s.%s' % (prefix, file_prefix)
+
+            self.meta['%s.%s' % (prefix, suffix)] = header[keyword]
+
     def do_lazyload(self):
         if self._bin_starts is not None:
             return
@@ -1016,87 +1057,37 @@ class IdrSpectrum(Spectrum):
             self._flux = np.copy(fits_file[0].data)
             self._fluxvar = np.copy(fits_file[1].data)
 
-            self.meta['fits.insttemp'] = header['INSTTEMP']
-            self.meta['fits.airmass'] = header['AIRMASS']
-            self.meta['fits.altitude'] = header['ALTITUDE']
-            self.meta['fits.azimuth'] = header['AZIMUTH']
-            self.meta['fits.timeon'] = header['TIMEON']
-            self.meta['fits.dettemp'] = header['DETTEMP']
-            self.meta['fits.bcfocus'] = header['BCFOCUS']
-            self.meta['fits.rcfocus'] = header['RCFOCUS']
-            self.meta['fits.seeing'] = header['SEEING']
-            self.meta['fits.mjd'] = header['JD'] - 2400000.5
-            self.meta['fits.latitude'] = header['LATITUDE']
-            self.meta['fits.longitude'] = header['LONGITUD']
-            self.meta['fits.efftime'] = header['EFFTIME']
-            self.meta['fits.exptime'] = header['EXPTIME']
-            # self.meta['fits.utc'] = header['UTC']
+            self._load_header(header)
 
-            # self.meta['fits.hinsid'] = header['HINSID']
-            # self.meta['fits.hintube'] = header['HINTUBE']
-            # self.meta['fits.houtsd'] = header['HOUTSD']
-            # self.meta['fits.tdmoil'] = header['TDMOIL']
-            # self.meta['fits.tdmwal'] = header['TDMWAL']
-            # self.meta['fits.tglycl'] = header['TGLYCL']
-            # self.meta['fits.tinsid'] = header['TINSID']
-            # self.meta['fits.tintube'] = header['TINTUBE']
-            # self.meta['fits.toutsd'] = header['TOUTSD']
-            # self.meta['fits.tpboil'] = header['TPBOIL']
-            # self.meta['fits.tpier1'] = header['TPIER1']
-            # self.meta['fits.tpmirr'] = header['TPMIRR']
-            # self.meta['fits.ttbase'] = header['TTBASE']
-            # self.meta['fits.ttdome'] = header['TTDOME']
-            # self.meta['fits.tttube'] = header['TTTUBE']
-            # self.meta['fits.pressure'] = header['PRESSURE']
-            # self.meta['fits.temp'] = header['TEMP']
-            # self.meta['fits.humidity'] = header['HUMIDITY']
+            if self.load_both_headers:
+                # Load the header from the R channel too.
+                path_r = '%s/%s' % (self.idr_directory,
+                                    self.meta['idr.spec_R'])
+                with fits.open(path_r) as fits_file_r:
+                    header_r = fits_file_r[0].header
+                    self._load_header(header_r, 'r')
 
-            # self.meta['fits.rdnoise1'] = header['RDNOISE1']
-            # self.meta['fits.rdnoise2'] = header['RDNOISE2']
-            # self.meta['fits.ovscmed1'] = header['OVSCMED1']
-            # self.meta['fits.ovscmed2'] = header['OVSCMED2']
-            # self.meta['fits.saturat1'] = header['SATURAT1']
-            # self.meta['fits.saturat2'] = header['SATURAT2']
-
-            # self.meta['fits.arcoff'] = header['ARCOFF']
-            # self.meta['fits.arcsca'] = header['ARCSCA']
-            # self.meta['fits.scioff'] = header['SCIOFF']
-            # self.meta['fits.scisca'] = header['SCISCA']
-
-            # self.meta['es.chi2'] = header['ES_CHI2']
-            self.meta['es.airm'] = header['ES_AIRM']
-            self.meta['es.paran'] = header['ES_PARAN']
-            self.meta['es.xc'] = header['ES_XC']
-            self.meta['es.yc'] = header['ES_YC']
-            self.meta['es.xy'] = header['ES_XY']
-            self.meta['es.e0'] = header['ES_E0']
-            self.meta['es.a0'] = header['ES_A0']
-            self.meta['es.a1'] = header['ES_A1']
-            self.meta['es.a2'] = header['ES_A2']
-            self.meta['es.tflux'] = header['ES_TFLUX']
-            self.meta['es.sflux'] = header['ES_SFLUX']
-
-            try:
-                self.meta['cbft.snx'] = header['CBFT_SNX']
-                self.meta['cbft.sny'] = header['CBFT_SNY']
-            except KeyError:
-                pass
-
-            runid = header['RUNID']
-            self.meta['fits.dayofyear'] = int(runid[3:6])
-
-            ha_str = header['HA']
-            ha_comps = ha_str.split(':')
-            if ha_str[0] == '-':
-                ha_sign = -1
-            else:
-                ha_sign = +1
-            ha = ha_sign * (
-                abs(int(ha_comps[0])) +
-                int(ha_comps[1]) / 60. +
-                float(ha_comps[2]) / 3600.
-            )
-            self.meta['fits.ha'] = ha
+            # Additional keywords
+            if 'JD' in header and 'MJD' not in header:
+                self.meta['fits.mjd'] = header['JD'] - 2400000.5
+            if 'RUNID' in header:
+                runid = header['RUNID']
+                self.meta['fits.dayofyear'] = int(runid[3:6])
+            if 'HA' in header:
+                # Parse HA into something readable
+                ha_str = header['HA']
+                ha_comps = ha_str.split(':')
+                if ha_str[0] == '-':
+                    ha_sign = -1
+                else:
+                    ha_sign = +1
+                ha = ha_sign * (
+                    abs(int(ha_comps[0])) +
+                    int(ha_comps[1]) / 60. +
+                    float(ha_comps[2]) / 3600.
+                )
+                self.meta['fits.ha'] = ha
+                self.meta['fits.ha_str'] = ha_str
 
     @property
     def bin_starts(self):
