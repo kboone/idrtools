@@ -141,8 +141,12 @@ def plot_binned_function(x, y, func, bins=10, equal_bin_counts=False,
 
     from matplotlib import pyplot as plt
 
-    x = np.asarray(x)
-    y = np.asarray(y)
+    x = np.ravel(x)
+    y = np.ravel(y)
+
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
 
     # range is the keyword used by scipy.stats.binned_function, but it is also
     # a python keyword that we don't want to overwrite. Ugh. Internally, we use
@@ -249,13 +253,17 @@ def plot_binned_function(x, y, func, bins=10, equal_bin_counts=False,
     elif mode == 'scatter':
         plt.scatter(bin_centers, statistic, **kwargs)
     elif mode == 'plot':
-        plt.plot(bin_centers, statistic, **kwargs)
+        # Cut out NaNs which will put holes in the plot otherwise.
+        mask = np.isfinite(statistic)
+        plt.plot(bin_centers[mask], statistic[mask], **kwargs)
     elif mode == 'step':
         # Have to do a little hacking here since this isn't really built in.
         plt.step(bin_edges, np.hstack([statistic, statistic[-1]]),
                  where='post', **kwargs)
     else:
         raise IdrToolsMathException("Unknown mode %s!" % mode)
+
+    return bin_centers, statistic
 
 
 def plot_binned_nmad(x, y, *args, **kwargs):
