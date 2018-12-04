@@ -4,7 +4,7 @@ from astropy.table import Table
 
 try:
     import sncosmo
-except ModuleNotFoundError:
+except ImportError:
     # sncosmo is required for fitting, but I don't always have it installed.
     # Just error out if the fit is called. in that case.
     sncosmo = None
@@ -13,8 +13,9 @@ from .spectrum import IdrSpectrum, Spectrum
 from .tools import InvalidMetaDataException, IdrToolsException
 
 
-class Supernova(object):
-    def __init__(self, idr_directory, meta, restframe=True):
+class Target(object):
+    def __init__(self, idr_directory, meta, restframe=True,
+                 load_both_headers=False):
         self.idr_directory = idr_directory
         self.meta = meta
 
@@ -22,7 +23,7 @@ class Supernova(object):
         try:
             spectra_dict = self.meta['spectra']
         except KeyError:
-            # Whatever this is, it isn't a supernova in the IDR. Sometimes
+            # Whatever this is, it isn't a valid target in the IDR. Sometimes
             # these slip in weirdly.
             raise InvalidMetaDataException('Invalid SN metadata %s' % meta)
 
@@ -30,7 +31,8 @@ class Supernova(object):
 
         for exposure, exposure_data in spectra_dict.items():
             spectrum = IdrSpectrum(idr_directory, exposure_data, self,
-                                   restframe=restframe)
+                                   restframe=restframe,
+                                   load_both_headers=load_both_headers)
 
             if spectrum is None:
                 continue
@@ -55,7 +57,7 @@ class Supernova(object):
         return self.name
 
     def __repr__(self):
-        return 'Supernova(name="%s")' % (self.name,)
+        return 'Target(name="%s")' % (self.name,)
 
     def __getitem__(self, key):
         return self.meta[key]
@@ -86,7 +88,7 @@ class Supernova(object):
 
     @property
     def spectra(self):
-        """Return the list of spectra that are usable for this supernova.
+        """Return the list of spectra that are usable for this target.
 
         Spectra that have been flagged as unusable will not be in this list.
         """
@@ -94,7 +96,7 @@ class Supernova(object):
 
     @property
     def unusable_spectra(self):
-        """Return the list of spectra that are unusable for this supernova."""
+        """Return the list of spectra that are unusable for this target."""
         return np.array([i for i in self.all_spectra if not i.usable])
 
     @property
@@ -177,7 +179,7 @@ class Supernova(object):
         fluxvar = interpolator.get_fluxvar(phases, wave)
 
         # TODO: do this better. I just copy the meta from the first spectrum of
-        # this supernova from now and do a couple hacks to update it. This
+        # this target from now and do a couple hacks to update it. This
         # whole class really needs to be written...
         ref_spectrum = self.spectra[0]
 
