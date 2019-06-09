@@ -1,10 +1,29 @@
 import numpy as np
 import iminuit
+from functools import partial
 from scipy.stats import binned_statistic
 
 
 class IdrToolsMathException(Exception):
     pass
+
+
+def wilson_score(n, c, z):
+    """Calculate the Wilson score
+    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+
+    Parameters
+    ==========
+    n : int
+        The total number of samples.
+    c : int
+        The total number of positive samples.
+    z : float
+        The number of standard deviations to calculate the Wilson score for
+        (can be positive or negative).
+    """
+    p = c / n
+    return (p + z*z/(2*n) + z*np.sqrt((p*(1-p)+z*z/(4*n))/n)) / (1+z*z/n)
 
 
 def unbiased_std(x):
@@ -114,7 +133,7 @@ def plot_windowed_mean(x, y, *args, **kwargs):
 
 
 def plot_binned_function(x, y, func, bins=10, equal_bin_counts=False,
-                         mode='step', **kwargs):
+                         uncertainties=True, mode='step', **kwargs):
     """Plot the given function applied to the y variable, grouped by bins of
     the x variable.
 
@@ -132,11 +151,13 @@ def plot_binned_function(x, y, func, bins=10, equal_bin_counts=False,
     keyword.
     - step: draw a flat line for each group that spans the full width of the
     group.
+    - hline: draw disconnected horizontal lines for each the bins.
     - scatter: do a scatter plot of the results.
     - plot: draw lines between the bins, each of which is a single point.
-    - error: plot errorbars for each bin. This is only currently available for
-    a subset of functions where this is somewhat well-defined, and errors are
-    estimated from the data.
+
+    If uncertainties is True, plot uncertainties for each bin. This is only
+    currently available for a subset of functions where this is somewhat
+    well-defined, and uncertainties are estimated from the data.
     """
 
     from matplotlib import pyplot as plt
@@ -216,62 +237,101 @@ def plot_binned_function(x, y, func, bins=10, equal_bin_counts=False,
 
         bin_kwargs['bins'] = bin_edges
 
-    statistic, bin_edges, binnumber = binned_statistic(x, y, func,
+    # Estimate the statistic
+    use_func = func
+
+    if func == 'binomial':
+        use_func = 'mean'
+
+    statistic, bin_edges, binnumber = binned_statistic(x, y, use_func,
                                                        **bin_kwargs)
 
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
 
-    if mode == 'error':
-        # For median use NMAD for errors, for mean use std.
+    if mode == 'scatter':
+        plot = plt.scatter(bin_centers, statistic, **kwargs)
+    elif mode == 'plot':
+        # Cut out NaNs which will put holes in the plot otherwise.
+        mask = np.isfinite(statistic)
+        plot = plt.plot(bin_centers[mask], statistic[mask], **kwargs)
+    elif mode == 'step':
+        plot = plt.step(bin_edges, np.hstack([statistic, statistic[-1]]),
+                        where='post', **kwargs)
+    elif mode == 'hline':
+        plot = plt.hlines(statistic, bin_edges[:-1], bin_edges[1:], **kwargs)
+    else:
+        raise IdrToolsMathException("Unknown mode %s!" % mode)
+
+    if uncertainties:
+        # Define an estimator of the uncertainty on the statistic. For each
+        # estimator, we define `calc_uncertainty` which should evaluate the
+        # uncertainty on a set of numbers. By default, we assume that the 
+        # estimators are symmetric. If that is not the case, then
+        # `calc_uncertainty_negative` can be defined. In that case,
+        # the result of `calc_uncertainty` is interpreted as the positive
+        # uncertainty, and the result of `calc_uncertainty_negative` is
+        # interpreted as the negative uncertainty.
+        calc_uncertainty_negative = None
         if func == 'median':
-            err_func = nmad
+            def calc_uncertainty(bin_vals):
+                denom = max(len(bin_vals), 2)
+                return nmad(bin_vals) / np.sqrt(denom - 1)
         elif func == 'mean':
-            err_func = np.std
+            def calc_uncertainty(bin_vals):
+                denom = max(len(bin_vals), 2)
+                return np.std(bin_vals) / np.sqrt(denom - 1)
+        elif func == 'binomial':
+            # Use the Wilson score interval to estimate the uncertainty
+            # https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+            def calc_uncertainty(bin_vals, z=1):
+                c = np.sum(bin_vals)
+                n = len(bin_vals)
+
+                return np.abs(wilson_score(n, c, z) - c / n)
+            calc_uncertainty_negative = partial(calc_uncertainty, z=-1)
         else:
             raise IdrToolsMathException(
                 "Can't do errors for given function! (%s)" % func
             )
 
-        err_statistic, err_bin_edges, err_binnumber = binned_statistic(
-            x, y, err_func, **bin_kwargs
-        )
+        bin_uncertainties, uncertainty_bin_edges, uncertainty_binnumber = \
+            binned_statistic(x, y, calc_uncertainty, **bin_kwargs)
+        assert np.all(uncertainty_binnumber == binnumber)
 
-        if 'fmt' not in kwargs:
-            kwargs['fmt'] = 'none'
+        if calc_uncertainty_negative is not None:
+            # Have uncertainties defined for both directions.
+            neg_bin_uncertainties, neg_bin_edges, neg_binnumber = \
+                binned_statistic(x, y, calc_uncertainty_negative, **bin_kwargs)
+            assert np.all(neg_binnumber == binnumber)
 
-        assert np.all(err_binnumber == binnumber)
+            bin_uncertainties = (neg_bin_uncertainties, bin_uncertainties)
 
-        bin_counts = np.array([np.sum(err_binnumber == i+1) for i in
-                               range(len(err_statistic))])
-        mask = bin_counts < 2
-        bin_counts[mask] = 2
-        errors = err_statistic / np.sqrt(bin_counts - 1)
-        errors[mask] = np.nan
-        bin_half_widths = (bin_edges[:-1] - bin_edges[1:]) / 2.
-        plt.errorbar(bin_centers, statistic, yerr=errors, xerr=bin_half_widths,
-                     **kwargs)
-    elif mode == 'scatter':
-        plt.scatter(bin_centers, statistic, **kwargs)
-    elif mode == 'plot':
-        # Cut out NaNs which will put holes in the plot otherwise.
-        mask = np.isfinite(statistic)
-        plt.plot(bin_centers[mask], statistic[mask], **kwargs)
-    elif mode == 'step':
-        # Have to do a little hacking here since this isn't really built in.
-        plt.step(bin_edges, np.hstack([statistic, statistic[-1]]),
-                 where='post', **kwargs)
-    else:
-        raise IdrToolsMathException("Unknown mode %s!" % mode)
+        uncertainty_kwargs = kwargs.copy()
+
+        if 'fmt' not in uncertainty_kwargs:
+            uncertainty_kwargs['fmt'] = 'none'
+
+        # Copy the color from the main plot
+        uncertainty_kwargs['c'] = plot[0].get_color()
+
+        # Don't label the uncertainty
+        uncertainty_kwargs['label'] = ''
+
+        plt.errorbar(bin_centers, statistic, yerr=bin_uncertainties,
+                     **uncertainty_kwargs)
+
 
     return bin_centers, statistic
 
 
 def plot_binned_nmad(x, y, *args, **kwargs):
-    return plot_binned_function(x, y, nmad, *args, **kwargs)
+    return plot_binned_function(x, y, nmad, *args, uncertainties=False,
+                                **kwargs)
 
 
 def plot_binned_rms(x, y, *args, **kwargs):
-    return plot_binned_function(x, y, rms, *args, **kwargs)
+    return plot_binned_function(x, y, rms, *args, uncertainties=False,
+                                **kwargs)
 
 
 def plot_binned_median(x, y, *args, **kwargs):
@@ -280,6 +340,15 @@ def plot_binned_median(x, y, *args, **kwargs):
 
 def plot_binned_mean(x, y, *args, **kwargs):
     return plot_binned_function(x, y, 'mean', *args, **kwargs)
+
+
+def plot_binned_binomial(x, y, *args, **kwargs):
+    """Plot statistics for a variable that is either 0 or 1.
+
+    This will provide an estimate of the binomial probability p for each bin,
+    and the uncertainty on the estimate of p can also be calculated.
+    """
+    return plot_binned_function(x, y, 'binomial', *args, **kwargs)
 
 
 def fit_global_values(id_1, id_2, diffs, weights=None,
