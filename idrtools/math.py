@@ -421,3 +421,46 @@ def fit_global_values(id_1, id_2, diffs, weights=None,
         return (all_vars, fitted_vals, global_fit_vals)
 
     return all_vars, fitted_vals
+
+
+def _apply_bootstrap_mask(vals, mask):
+    if len(np.shape(vals)) != 1 or len(vals) != mask.shape[0]:
+        # Not something to apply the bootstrap to
+        return vals
+    
+    else:
+        return vals[mask]
+
+
+def bootstrap_statistic(statistic, vals, *args, num_resamples=10000, **kwargs):
+    """Use bootstrap resampling to estimate the uncertainty on a statistic.
+
+    This supports passing arbitrary arguments to the called statistic function.
+    If those arguments have the same shape as vals, they will be bootstrapped
+    too. Otherwise, they will be passed as-is.
+    """
+    stat = statistic(vals, *args, **kwargs)
+    
+    if len(np.shape(vals)) != 1:
+        raise Exception("bootstrap_statistic only supported for 1-D inputs.")
+        
+    bootstrap_idx = np.random.choice(len(vals), (len(vals), num_resamples))
+
+    bootstrap_vals = vals[bootstrap_idx]
+    
+    bootstrap_args = []
+    for arg in args:
+        bootstrap_args.append(_apply_bootstrap_mask(arg, bootstrap_idx))
+        
+    bootstrap_kwargs = {}
+    for arg_name, arg in kwargs.items():
+        bootstrap_kwargs[arg_name] = _apply_bootstrap_mask(arg, bootstrap_idx)
+        
+    bootstrap_stat = statistic(bootstrap_vals, *bootstrap_args, axis=0,
+                               **bootstrap_kwargs)
+    stat_err = np.std(bootstrap_stat, axis=-1)
+    
+    if len(np.shape(stat_err)) > 0:
+        stat = np.array(stat)
+    
+    return stat, stat_err
