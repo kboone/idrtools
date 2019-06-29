@@ -28,33 +28,35 @@ def wilson_score(n, c, z):
 
 def unbiased_std(x):
     x = np.asarray(x) - np.mean(x)
-    return np.sqrt(np.sum(x*x) / (len(x) - 1))
+    return np.sqrt(np.sum(x*x) / (x.size - 1))
 
 
-def nmad(x, *args, **kwargs):
-    return 1.4826 * np.median(
-        np.abs(np.asarray(x) - np.median(x, *args, **kwargs)),
-        *args, **kwargs
-    )
+def nmad(x, *args, unbiased=False, centered=False, **kwargs):
+    x = np.asarray(x)
+    if not centered:
+        x = x - np.median(x, *args, **kwargs)
+
+    nmad = 1.4826 * np.median(np.abs(x), *args, **kwargs)
+
+    if unbiased:
+        nmad = nmad * x.size / (x.size - 1)
+
+    return nmad
 
 
-def nmad2(x, *args, **kwargs):
-    """NMAD without median subtraction"""
-    return 1.4826 * np.median(
-        np.abs(np.asarray(x)),
-        *args, **kwargs
-    )
+def nmad_centered(x, *args, **kwargs):
+    return nmad(x, *args, centered=True, **kwargs)
 
 
 def rms(x):
     x = np.asarray(x)
-    return np.sqrt(np.sum(x*x) / len(x))
+    return np.sqrt(np.sum(x*x) / x.size)
 
 
 def cum_rms(x):
     x = np.asarray(x)
     num = np.cumsum(x**2)
-    denom = np.arange(len(x)) + 1
+    denom = np.arange(x.size) + 1
     return np.sqrt(num / denom)
 
 
@@ -328,11 +330,17 @@ def plot_binned_nmad(x, y, *args, **kwargs):
     return plot_binned_function(x, y, nmad, *args, uncertainties=False,
                                 **kwargs)
 
+def plot_binned_nmad_centered(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, nmad_centered, *args,
+                                uncertainties=False, **kwargs)
 
 def plot_binned_rms(x, y, *args, **kwargs):
     return plot_binned_function(x, y, rms, *args, uncertainties=False,
                                 **kwargs)
 
+def plot_binned_std(x, y, *args, **kwargs):
+    return plot_binned_function(x, y, np.std, *args, uncertainties=False,
+                                **kwargs)
 
 def plot_binned_median(x, y, *args, **kwargs):
     return plot_binned_function(x, y, 'median', *args, **kwargs)
