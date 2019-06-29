@@ -8,29 +8,6 @@ class IdrToolsMathException(Exception):
     pass
 
 
-def wilson_score(n, c, z):
-    """Calculate the Wilson score
-    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
-
-    Parameters
-    ==========
-    n : int
-        The total number of samples.
-    c : int
-        The total number of positive samples.
-    z : float
-        The number of standard deviations to calculate the Wilson score for
-        (can be positive or negative).
-    """
-    p = c / n
-    return (p + z*z/(2*n) + z*np.sqrt((p*(1-p)+z*z/(4*n))/n)) / (1+z*z/n)
-
-
-def unbiased_std(x):
-    x = np.asarray(x) - np.mean(x)
-    return np.sqrt(np.sum(x*x) / (x.size - 1))
-
-
 def nmad(x, *args, unbiased=False, centered=False, **kwargs):
     x = np.asarray(x)
     if not centered:
@@ -421,6 +398,24 @@ def fit_global_values(id_1, id_2, diffs, weights=None,
         return (all_vars, fitted_vals, global_fit_vals)
 
     return all_vars, fitted_vals
+
+
+def wilson_score(n, c, z):
+    """Calculate the Wilson score
+    https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval
+
+    Parameters
+    ==========
+    n : int
+        The total number of samples.
+    c : int
+        The total number of positive samples.
+    z : float
+        The number of standard deviations to calculate the Wilson score for
+        (can be positive or negative).
+    """
+    p = c / n
+    return (p + z*z/(2*n) + z*np.sqrt((p*(1-p)+z*z/(4*n))/n)) / (1+z*z/n)
 
 
 def _apply_bootstrap_mask(vals, mask):
