@@ -259,7 +259,7 @@ class Target(object):
         plt.ylabel('Magnitude + offset')
         plt.title(self)
 
-    def get_photometry(self, filters='BVR'):
+    def get_photometry(self, filters='BVR', **kwargs):
         redshift = self.meta['host.zhelio']
         day_max = self.meta['salt2.DayMax']
 
@@ -267,7 +267,7 @@ class Target(object):
         for spectrum in self.spectra:
             for filter_name in filters:
                 flux, flux_error = spectrum.get_snf_band_flux(
-                    filter_name, calculate_error=True
+                    filter_name, calculate_error=True, **kwargs
                 )
 
                 # SNf-pipeline calculated photometry. This doesn't work for
@@ -284,12 +284,8 @@ class Target(object):
                 # SALT2 fit for the date of maximum, so the peak of the LC
                 # should be close to 0 (although we don't include corrections
                 # for B-max)
-                mjd = spectrum.meta['fits.mjd']
+                mjd = spectrum.meta['obs.mjd']
                 time = (mjd - day_max) / (1 + redshift)
-
-                if time > 45. or time < -15.:
-                    # Outside of SALT2 model range, ignore.
-                    continue
 
                 scaling = -20.
                 zeropoint = 0.
@@ -313,8 +309,8 @@ class Target(object):
         mag_scale = 2.5 / np.log(10)
         mag_error = mag_scale * data['fluxerr'] / data['flux']
 
-        # rescaled_mag_error = mag_error * 0.05 / np.median(mag_error)
-        rescaled_mag_error = np.sqrt(mag_error**2 + 0.05**2)
+        rescaled_mag_error = mag_error * 0.05 / np.median(mag_error)
+        # rescaled_mag_error = np.sqrt(mag_error**2 + 0.05**2)
 
         rescaled_flux_error = rescaled_mag_error * data['flux'] / mag_scale
 
