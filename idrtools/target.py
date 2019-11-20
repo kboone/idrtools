@@ -14,8 +14,7 @@ from .tools import InvalidMetaDataException, IdrToolsException
 
 
 class Target(object):
-    def __init__(self, idr_directory, meta, restframe=True,
-                 load_both_headers=False):
+    def __init__(self, idr_directory, meta, load_both_headers=False):
         self.idr_directory = idr_directory
         self.meta = meta
 
@@ -31,7 +30,6 @@ class Target(object):
 
         for exposure, exposure_data in spectra_dict.items():
             spectrum = IdrSpectrum(idr_directory, exposure_data, self,
-                                   restframe=restframe,
                                    load_both_headers=load_both_headers)
 
             if spectrum is None:
@@ -44,6 +42,13 @@ class Target(object):
                 continue
 
             all_spectra.append(spectrum)
+
+        # Figure out the reference time.
+        try:
+            reference_time = self.meta['salt2.DayMax']
+        except KeyError:
+            reference_time = 0
+        self.meta['idrtools.reference_time'] = reference_time
 
         all_spectra = sorted(all_spectra, key=lambda spectrum: spectrum.phase)
 
@@ -98,6 +103,26 @@ class Target(object):
     def unusable_spectra(self):
         """Return the list of spectra that are unusable for this target."""
         return np.array([i for i in self.all_spectra if not i.usable])
+
+    @property
+    def reference_time(self):
+        """Return the time to use as a reference for this object."""
+        return self.meta['idrtools.reference_time']
+
+    @property
+    def redshift_helio(self):
+        """Return the heliocentric redshift."""
+        return self.meta['host.zhelio']
+
+    @property
+    def redshift_cmb(self):
+        """Return the CMB-centric redshift."""
+        return self.meta['host.zcmb']
+
+    @reference_time.setter
+    def reference_time(self, value):
+        """Set the time to use as a reference for this object."""
+        self.meta['idrtools.reference_time'] = value
 
     @property
     def phases(self):
@@ -198,7 +223,6 @@ class Target(object):
                 wave=wave,
                 flux=iter_flux,
                 fluxvar=iter_fluxvar,
-                restframe=True
             )
 
             spectrum.usable = True
@@ -260,9 +284,6 @@ class Target(object):
         plt.title(self)
 
     def get_photometry(self, filters='BVR', **kwargs):
-        redshift = self.meta['host.zhelio']
-        day_max = self.meta['salt2.DayMax']
-
         data = []
         for spectrum in self.spectra:
             for filter_name in filters:
@@ -270,22 +291,11 @@ class Target(object):
                     filter_name, calculate_error=True, **kwargs
                 )
 
-                # SNf-pipeline calculated photometry. This doesn't work for
-                # fitting because it isn't in restframe.
-                # mag = spectrum.meta['mag.%sSNf' % filter_name.upper()]
-                # mag_err = spectrum.meta['mag.%sSNf.err' % filter_name.upper()]
-                # if np.isnan(mag) or np.isnan(mag_err):
-                    # continue
-                # flux = 10**(-0.4 * mag)
-                # flux_error = mag_err * flux / (2.5 / np.log(10))
-
-                # We are fitting with restframe data in the restframe. Need to
-                # normalize the MJDs to account for this. We use the initial
-                # SALT2 fit for the date of maximum, so the peak of the LC
-                # should be close to 0 (although we don't include corrections
-                # for B-max)
-                mjd = spectrum.meta['obs.mjd']
-                time = (mjd - day_max) / (1 + redshift)
+                # We are fitting with restframe data in the restframe. We use the
+                # initial SALT2 fit for the date of maximum and phases, so the peak of
+                # the LC should be close to 0 (although we don't include corrections for
+                # B-max).
+                time = spectrum.phase
 
                 scaling = -20.
                 zeropoint = 0.
@@ -304,13 +314,12 @@ class Target(object):
         data = Table(data)
 
         # Apply a correction to the error. Currently in the SNf pipeline, the
-        # errors are rescaled so that the median is 0.05 mag acros the B, V and
-        # R filters. This is an implementation of that.
+        # errors are rescaled so that the median is 0.05 mag across each filter.
+        # This is an implementation of that.
         mag_scale = 2.5 / np.log(10)
         mag_error = mag_scale * data['fluxerr'] / data['flux']
 
         rescaled_mag_error = mag_error * 0.05 / np.median(mag_error)
-        # rescaled_mag_error = np.sqrt(mag_error**2 + 0.05**2)
 
         rescaled_flux_error = rescaled_mag_error * data['flux'] / mag_scale
 
@@ -371,6 +380,11 @@ class Target(object):
             'x0_err': result['errors']['x0'],
             'x1_err': result['errors']['x1'],
             'c_err': result['errors']['c'],
+
+            'covariance': result['covariance'],
+            'cov_parameters': result['vparam_names'],
+            'fitted_model': fitted_model,
+            'full_result': result
         }
 
         return result_dict

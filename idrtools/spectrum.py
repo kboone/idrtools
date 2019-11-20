@@ -92,46 +92,23 @@ def _get_magnitude(wave, flux, min_wave, max_wave, flux_err=None):
         return mag, mag_err
 
 
-def _get_snf_filter(filter_name, spec_restframe, restframe, redshift):
+def _get_snf_filter(filter_name):
     """Retrieve the edges of an SNf filter"""
     min_wave, max_wave = snf_filters[filter_name.lower()]
-
-    scale = 1.
-
-    # Get the right combination of restframe/non-restframe filter and
-    # spectrum.
-    if spec_restframe and not restframe:
-        scale = 1. - redshift
-    elif not spec_restframe and restframe:
-        scale = 1. + redshift
-
-    min_wave *= scale
-    max_wave *= scale
 
     return min_wave, max_wave
 
 
-def _get_snf_magnitude(wave, flux, filter_name, spec_restframe=True,
-                       restframe=True, redshift=0., flux_err=None):
-    """Calculate the AB magnitude for a given SNf filter.
-
-    These numbers will agree with the SNf filter data in the headers if you
-    use the observer frame filters (i.e. restframe=False) and convert from
-    Vega to AB (a constant).
-    """
-    min_wave, max_wave = _get_snf_filter(
-        filter_name, spec_restframe, restframe, redshift
-    )
+def _get_snf_magnitude(wave, flux, filter_name, flux_err=None):
+    """Calculate the AB magnitude for a given SNf filter."""
+    min_wave, max_wave = _get_snf_filter(filter_name)
 
     return _get_magnitude(wave, flux, min_wave, max_wave, flux_err=flux_err)
 
 
-def _get_snf_band_flux(wave, flux, filter_name, spec_restframe=True,
-                       restframe=True, redshift=0., flux_err=None):
+def _get_snf_band_flux(wave, flux, filter_name, flux_err=None):
     """Calculate the AB flux for a given SNf filter."""
-    min_wave, max_wave = _get_snf_filter(
-        filter_name, spec_restframe, restframe, redshift
-    )
+    min_wave, max_wave = _get_snf_filter(filter_name)
 
     return _get_band_flux(wave, flux, min_wave, max_wave, flux_err=flux_err)
 
@@ -259,15 +236,14 @@ def _parse_flux_information(data_dict):
 
 
 class Spectrum(object):
-    def __init__(self, meta={}, target=None, redshift=None,
-                 name='unnamed_spectrum', phase=None, target_name=None,
+    def __init__(self, meta={}, target=None, name='Unknown Spectrum', time=None,
                  **data_dict):
         """Initialize the spectrum.
 
         Data can be optionally passed in with a variety of keywords.
         """
         self.meta = self._get_default_meta(
-            redshift=redshift, name=name, phase=phase, target_name=target_name
+            name=name, time=time,
         )
         self.meta.update(meta)
 
@@ -276,22 +252,18 @@ class Spectrum(object):
 
         self.target = target
 
-    def _get_default_meta(self, redshift, name, phase, target_name):
+    def _get_default_meta(self, name, time):
         """Default meta for a new spectrum"""
         meta = {}
 
         # Locations of keys. These will be used to map the various properties
         # of this class to physical values in the meta.
-        meta['idrtools.keys.redshift'] = 'idrtools.redshift'
         meta['idrtools.keys.name'] = 'idrtools.name'
-        meta['idrtools.keys.phase'] = 'idrtools.phase'
-        meta['idrtools.keys.target_name'] = 'idrtools.target_name'
+        meta['idrtools.keys.time'] = 'idrtools.time'
 
         # Default keys
-        meta['idrtools.redshift'] = redshift
         meta['idrtools.name'] = name
-        meta['idrtools.phase'] = phase
-        meta['idrtools.target_name'] = target_name
+        meta['idrtools.time'] = time
 
         return meta
 
@@ -334,15 +306,6 @@ class Spectrum(object):
                 len(fits_file) > variance_extension):
             variance = np.copy(fits_file[variance_extension].data)
 
-        # Try to find the target name.
-        target_name_keys = ['OBJECT', 'TARGET']
-        for key in target_name_keys:
-            if key in header:
-                target_name = header[key]
-                break
-        else:
-            target_name = 'unknown_target'
-
         # Try to find the spectrum name
         spectrum_name_keys = ['OBSID']
         for key in spectrum_name_keys:
@@ -350,7 +313,7 @@ class Spectrum(object):
                 spectrum_name = header[key]
                 break
         else:
-            spectrum_name = 'unknown_spectrum'
+            spectrum_name = 'Unknown Spectrum'
 
         meta = {}
 
@@ -367,11 +330,7 @@ class Spectrum(object):
         fits_file.close()
 
         new_object = cls(meta=meta, wave=wave, flux=flux, fluxvar=variance,
-                         name=spectrum_name, target_name=target_name,
-                         redshift=0.)
-
-        # Hack... need to refactor all of this to make sense.
-        new_object.restframe = False
+                         name=spectrum_name)
 
         return new_object
 
@@ -405,8 +364,9 @@ class Spectrum(object):
         return self.name
 
     def __repr__(self):
-        return '%s(target="%s", name="%s")' % (type(self).__name__,
-                                               self.target_name, self.name)
+        return '%s(target="%s", name="%s", phase=%.3f)' % (
+            type(self).__name__, self.target_name, self.name, self.phase
+        )
 
     def __getitem__(self, key):
         return self.meta[key]
@@ -454,16 +414,35 @@ class Spectrum(object):
             self.meta['idrtools.usable'] = False
 
     @property
-    def phase(self):
-        return self.meta[self.meta['idrtools.keys.phase']]
+    def time(self):
+        return self.meta[self.meta['idrtools.keys.time']]
 
     @property
-    def redshift(self):
-        return self.meta[self.meta['idrtools.keys.redshift']]
+    def phase(self):
+        # Return the restframe phase of the observation relative to the reference time
+        # of the target. 
+        time = self.time
+        reference_time = self.target.reference_time
+        redshift = self.target.redshift_helio
+
+        phase = (time - reference_time) / (1 + redshift)
+
+        return phase
 
     @property
     def target_name(self):
-        return self.meta[self.meta['idrtools.keys.target_name']]
+        # If we have a target object, get the name from it.
+        if self.target is not None:
+            return self.target.name
+
+        # If we don't have a target object, try to get the name from the fits header.
+        target_name_keys = ['fits.object', 'fits.target']
+        for key in target_name_keys:
+            if key in self.meta:
+                return self.meta[key]
+
+        # Return a default name if we can't find anything.
+        return 'Unknown Target'
 
     @property
     def bin_starts(self):
@@ -782,8 +761,7 @@ class Spectrum(object):
             wave=self.wave * (1 + delta_redshift),
         )
 
-    def get_modified_spectrum(self, modification, meta=None, target=None,
-                              restframe=None, **data_dict):
+    def get_modified_spectrum(self, modification, meta=None, target=None, **data_dict):
         """Get a modified version of the current spectrum with new values.
 
         modification is a string indicating what modification was done.
@@ -796,9 +774,6 @@ class Spectrum(object):
 
         if target is None:
             target = self.target
-
-        if restframe is None:
-            restframe = self.restframe
 
         # Check for updates to the wavelength or flux
         bin_starts, bin_ends = _parse_wavelength_information(data_dict)
@@ -827,7 +802,6 @@ class Spectrum(object):
         return ModifiedSpectrum(
             meta,
             target,
-            restframe,
             bin_starts,
             bin_ends,
             flux,
@@ -873,22 +847,14 @@ class Spectrum(object):
         return _get_magnitude(self.wave, self.flux, min_wave, max_wave,
                               flux_err)
 
-    def get_snf_magnitude(self, filter_name, restframe=True,
-                          calculate_error=False):
-        """Calculate the AB magnitude for a given SNf filter.
-
-        These numbers will agree with the SNf filter data in the headers if you
-        use the observer frame filters (i.e. restframe=False) and convert from
-        Vega to AB (a constant).
-        """
+    def get_snf_magnitude(self, filter_name, calculate_error=False):
+        """Calculate the AB magnitude for a given SNf filter."""
         if calculate_error:
             flux_err = self.fluxerr
         else:
             flux_err = None
 
-        return _get_snf_magnitude(self.wave, self.flux, filter_name,
-                                  self.restframe, restframe, self.redshift,
-                                  flux_err)
+        return _get_snf_magnitude(self.wave, self.flux, filter_name, flux_err)
 
     def get_band_flux(self, min_wave, max_wave, calculate_error=False):
         """Calculate the AB flux for a given tophat filter."""
@@ -900,22 +866,14 @@ class Spectrum(object):
         return _get_band_flux(self.wave, self.flux, min_wave, max_wave,
                               flux_err)
 
-    def get_snf_band_flux(self, filter_name, restframe=True,
-                          calculate_error=False):
-        """Calculate the AB flux for a given SNf filter.
-
-        These numbers will agree with the SNf filter data in the headers if you
-        use the observer frame filters (i.e. restframe=False) and convert from
-        Vega to AB (a constant).
-        """
+    def get_snf_band_flux(self, filter_name, calculate_error=False):
+        """Calculate the AB flux for a given SNf filter."""
         if calculate_error:
             flux_err = self.fluxerr
         else:
             flux_err = None
 
-        return _get_snf_band_flux(self.wave, self.flux, filter_name,
-                                  self.restframe, restframe, self.redshift,
-                                  flux_err)
+        return _get_snf_band_flux(self.wave, self.flux, filter_name, flux_err)
 
     def get_signal_to_noise(self, min_wave=None, max_wave=None):
         """Calculate the signal-to-noise for a given tophat filter.
@@ -942,42 +900,26 @@ class Spectrum(object):
 
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, target, restframe=True,
-                 load_both_headers=False):
+    def __init__(self, idr_directory, meta, target, load_both_headers=False):
         super(IdrSpectrum, self).__init__(meta, target)
 
         # Lazy load the wave and flux when we actually use them. This makes
         # things a lot faster.
         self.idr_directory = idr_directory
 
-        self.restframe = restframe
         self.load_both_headers = load_both_headers
 
         # Update meta keys
         self.meta['idrtools.keys.name'] = 'idr.prefix'
-        self.meta['idrtools.keys.target_name'] = 'target.name'
 
-        # Find redshift
-        if 'host.zcmb' in self.target.meta:
-            redshift = self.target.meta['host.zcmb']
-        elif 'StdStar' in self.target.meta['target.kind']:
-            # This is a standard star. Redshift is 0.
-            redshift = 0.
-        else:
-            # Unknown redshift
-            raise InvalidMetaDataException('No redshift found for %s!' %
-                                           target)
-        self.meta['idrtools.redshift'] = redshift
-
-        # Find phase key
-        if 'salt2.phase' in self.meta:
-            phase_key = 'salt2.phase'
+        # Find time key
+        if 'obs.mjd' in self.meta:
+            time_key = 'obs.mjd'
         elif 'qmagn.phase' in self.meta:
-            phase_key = 'qmagn.phase'
+            time_key = 'qmagn.phase'
         else:
-            raise InvalidMetaDataException('No phase key found for %s!' %
-                                           target)
-        self.meta['idrtools.keys.phase'] = phase_key
+            raise InvalidMetaDataException('No time key found for %s!' % target)
+        self.meta['idrtools.keys.time'] = time_key
 
         # Check if the spectrum is good or not. We drop everything that is
         # flagged in the IDR with one of the "bad" flags.
@@ -1012,17 +954,14 @@ class IdrSpectrum(Spectrum):
     @property
     def path(self):
         """Find the path to the file"""
-        if self.restframe:
+        if self.target.redshift_helio > 0:
+            # Supernova, get the rest frame spectrum.
             key = 'idr.spec_restframe'
         else:
+            # Star, get the original spectrum.
             key = 'idr.spec_merged'
 
-        try:
-            path = '%s/%s' % (self.idr_directory, self.meta[key])
-        except KeyError:
-            if self.restframe and 'idr.spec_merged' in self.meta:
-                print("Did you mean to set restframe=False?")
-            raise
+        path = '%s/%s' % (self.idr_directory, self.meta[key])
 
         return path
 
@@ -1111,7 +1050,7 @@ class IdrSpectrum(Spectrum):
 
 
 class ModifiedSpectrum(Spectrum):
-    def __init__(self, meta, target, restframe, bin_starts, bin_ends, flux,
+    def __init__(self, meta, target, bin_starts, bin_ends, flux,
                  fluxvar, modifications=[]):
         super(ModifiedSpectrum, self).__init__(meta, target)
 
@@ -1119,7 +1058,5 @@ class ModifiedSpectrum(Spectrum):
         self._bin_ends = bin_ends
         self._flux = flux
         self._fluxvar = fluxvar
-
-        self.restframe = restframe
 
         self.modifications = modifications

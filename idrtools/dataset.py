@@ -14,7 +14,7 @@ class Dataset(object):
         self.meta = meta
 
     @classmethod
-    def from_idr(cls, idr_directory, restframe=True, load_both_headers=False):
+    def from_idr(cls, idr_directory, load_both_headers=False):
         with open('%s/META.pkl' % (idr_directory,), 'rb') as idr_file:
             idr_meta = pickle.load(idr_file)
 
@@ -23,7 +23,6 @@ class Dataset(object):
         for target_name, target_meta in idr_meta.items():
             try:
                 target = Target(idr_directory, target_meta,
-                                restframe=restframe,
                                 load_both_headers=load_both_headers)
                 all_targets.append(target)
             except InvalidMetaDataException:
