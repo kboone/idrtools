@@ -206,3 +206,59 @@ class Dataset(object):
                 result = target
 
         return result
+
+    def get_spectrum(self, exposure):
+        """Find the spectrum that matchees the given name."""
+        for target in self.targets:
+            for spectrum in target.spectra:
+                if spectrum['obs.exp'] == exposure:
+                    return spectrum
+
+        return None
+
+    def do_salt_fits(self, path=None, overwrite=False):
+        """Redo all of the SALT2 fits for this dataset.
+
+        The fits are written out to path. If path is not specified, then the fits are
+        put in the original IDR directory.
+        """
+        if path is None:
+            path = os.path.join(self.idr_directory, 'idrtools_salt_fits.pkl')
+
+        if os.path.exists(path) and not overwrite:
+            raise IdrToolsException("SALT2 fits already exist at %s! Not overwriting!" %
+                                    path)
+
+        # Use tqdm for progress if available.
+        try:
+            from tqdm import tqdm
+        except ImportError:
+            def tqdm(x):
+                return x
+
+        salt_fits = {}
+        for target in tqdm(self.targets):
+            salt_fits[target.name] = target.fit_salt()
+
+        with open(path, 'wb') as pickle_file:
+            pickle.dump(salt_fits, pickle_file)
+
+    def load_salt_fits(self, path=None):
+        """Load the SALT2 fits for this dataset.
+
+        If path is not specified, then a default path is used in the original IDR
+        directory.
+        """
+        if path is None:
+            path = os.path.join(self.idr_directory, 'idrtools_salt_fits.pkl')
+
+        if not os.path.exists(path):
+            print("SALT2 fits not found at %s. Redoing them. This might take a while" %
+                  path)
+            self.do_salt_fits(path)
+
+        with open(path, 'rb') as pickle_file:
+            salt_fits = pickle.load(pickle_file)
+
+        for target in self.targets:
+            target.salt_fit = salt_fits[target.name]

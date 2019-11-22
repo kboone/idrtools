@@ -12,10 +12,14 @@ from .tools import InvalidMetaDataException, SpectrumBoundsException, \
     InvalidDataException, IdrToolsException, snf_filters
 
 
-def _get_band_flux(wave, flux, min_wave, max_wave, flux_err=None):
+def _get_band_flux(wave, flux, min_wave, max_wave, flux_err=None, clip_filter=False):
     """Calculate the AB flux for a given tophat filter.
 
     Flux should be in erg/cm^2/s/A to get the right normalization.
+
+    If clip_filter is False, then a SpectrumBoundsException is raised if the band clips
+    outside of the given spectrum. If it is True, then the flux will be calculated using
+    a filter that is clipped at the edges of the spectrum.
 
     At some point I should implement non-tophat filters here. Note that
     I am not handling edges properly... blah whatever close enough.
@@ -33,12 +37,24 @@ def _get_band_flux(wave, flux, min_wave, max_wave, flux_err=None):
     # flexibility to avoid bin edge/bin center issues.
     if ((max_wave > wave[-1] + bin_widths[-1]) or
             (min_wave < wave[0] - bin_widths[0])):
-        raise SpectrumBoundsException(
-            'Filter with edges %d, %d is not contained within the spectrum '
-            '(bounds: %d, %d)'
-            % (min_wave, max_wave, wave[0] - bin_widths[0], wave[-1] +
-               bin_widths[-1])
-        )
+        message = ('Filter with edges %d, %d is not contained within the spectrum '
+                   '(bounds: %d, %d)' % (min_wave, max_wave, wave[0] - bin_widths[0],
+                                         wave[-1] + bin_widths[-1]))
+        if clip_filter:
+            if ((min_wave >= wave[-1] + bin_widths[-1])
+                    or (max_wave < wave[0] - bin_widths[0])):
+                raise SpectrumBoundsException(
+                    'Filter with edges %d, %d has no overlap with the spectrum '
+                    '(bounds: %d, %d)'
+                    % (min_wave, max_wave, wave[0] - bin_widths[0], wave[-1] +
+                       bin_widths[-1])
+                )
+
+            print("WARNING: %s" % message)
+            min_wave = max(min_wave, wave[0] - bin_widths[0])
+            max_wave = min(max_wave, wave[-1] + bin_widths[-1])
+        else:
+            raise SpectrumBoundsException(message)
 
     # Convert the flux from erg/cm^2/s/A to phot/cm^2/s/A
     h = 6.626070040e-34
@@ -71,13 +87,13 @@ def _get_band_flux(wave, flux, min_wave, max_wave, flux_err=None):
         return band_flux, band_flux_err
 
 
-def _get_magnitude(wave, flux, min_wave, max_wave, flux_err=None):
+def _get_magnitude(wave, flux, min_wave, max_wave, flux_err=None, **kwargs):
     """Calculate the AB magnitude for a given tophat filter.
 
     Flux should be in erg/cm^2/s/A to get the right normalization.
     """
     band_flux = _get_band_flux(
-        wave, flux, min_wave, max_wave, flux_err=flux_err
+        wave, flux, min_wave, max_wave, flux_err=flux_err, **kwargs
     )
 
     if flux_err is not None:
@@ -99,18 +115,18 @@ def _get_snf_filter(filter_name):
     return min_wave, max_wave
 
 
-def _get_snf_magnitude(wave, flux, filter_name, flux_err=None):
+def _get_snf_magnitude(wave, flux, filter_name, flux_err=None, **kwargs):
     """Calculate the AB magnitude for a given SNf filter."""
     min_wave, max_wave = _get_snf_filter(filter_name)
 
-    return _get_magnitude(wave, flux, min_wave, max_wave, flux_err=flux_err)
+    return _get_magnitude(wave, flux, min_wave, max_wave, flux_err=flux_err, **kwargs)
 
 
-def _get_snf_band_flux(wave, flux, filter_name, flux_err=None):
+def _get_snf_band_flux(wave, flux, filter_name, flux_err=None, **kwargs):
     """Calculate the AB flux for a given SNf filter."""
     min_wave, max_wave = _get_snf_filter(filter_name)
 
-    return _get_band_flux(wave, flux, min_wave, max_wave, flux_err=flux_err)
+    return _get_band_flux(wave, flux, min_wave, max_wave, flux_err=flux_err, **kwargs)
 
 
 def _recover_bin_edges(bin_centers):
@@ -420,7 +436,7 @@ class Spectrum(object):
     @property
     def phase(self):
         # Return the restframe phase of the observation relative to the reference time
-        # of the target. 
+        # of the target.
         time = self.time
         reference_time = self.target.reference_time
         redshift = self.target.redshift_helio
@@ -837,7 +853,7 @@ class Spectrum(object):
         plt.ylabel('Flux')
         plt.title(self)
 
-    def get_magnitude(self, min_wave, max_wave, calculate_error=False):
+    def get_magnitude(self, min_wave, max_wave, calculate_error=False, **kwargs):
         """Calculate the AB magnitude for a given tophat filter."""
         if calculate_error:
             flux_err = self.fluxerr
@@ -845,18 +861,18 @@ class Spectrum(object):
             flux_err = None
 
         return _get_magnitude(self.wave, self.flux, min_wave, max_wave,
-                              flux_err)
+                              flux_err, **kwargs)
 
-    def get_snf_magnitude(self, filter_name, calculate_error=False):
+    def get_snf_magnitude(self, filter_name, calculate_error=False, **kwargs):
         """Calculate the AB magnitude for a given SNf filter."""
         if calculate_error:
             flux_err = self.fluxerr
         else:
             flux_err = None
 
-        return _get_snf_magnitude(self.wave, self.flux, filter_name, flux_err)
+        return _get_snf_magnitude(self.wave, self.flux, filter_name, flux_err, **kwargs)
 
-    def get_band_flux(self, min_wave, max_wave, calculate_error=False):
+    def get_band_flux(self, min_wave, max_wave, calculate_error=False, **kwargs):
         """Calculate the AB flux for a given tophat filter."""
         if calculate_error:
             flux_err = self.fluxerr
@@ -864,20 +880,20 @@ class Spectrum(object):
             flux_err = None
 
         return _get_band_flux(self.wave, self.flux, min_wave, max_wave,
-                              flux_err)
+                              flux_err, **kwargs)
 
-    def get_snf_band_flux(self, filter_name, calculate_error=False):
+    def get_snf_band_flux(self, filter_name, calculate_error=False, **kwargs):
         """Calculate the AB flux for a given SNf filter."""
         if calculate_error:
             flux_err = self.fluxerr
         else:
             flux_err = None
 
-        return _get_snf_band_flux(self.wave, self.flux, filter_name, flux_err)
+        return _get_snf_band_flux(self.wave, self.flux, filter_name, flux_err, **kwargs)
 
-    def get_signal_to_noise(self, min_wave=None, max_wave=None):
+    def get_signal_to_noise(self, min_wave=None, max_wave=None, **kwargs):
         """Calculate the signal-to-noise for a given tophat filter.
-        
+
         If min_wave or max_wave are None, the calculation goes up to the edge
         of the spectrum.
         """
@@ -887,7 +903,7 @@ class Spectrum(object):
             max_wave = self.wave[-1]
 
         flux, flux_err = self.get_band_flux(min_wave, max_wave,
-                                            calculate_error=True)
+                                            calculate_error=True, **kwargs)
 
         return flux / flux_err
 
@@ -950,6 +966,15 @@ class IdrSpectrum(Spectrum):
             self.usable = usable
         except KeyError:
             pass
+
+        # Make sure that there is flux in the spectrum. There seem to be some strange
+        # cubefit failure modes that don't get captured by a flag where the final
+        # spectrum is completely wrong and negative. Flag these as unusable.
+        # e.g.: B channel for 05_166_046_001 for BLACKSTONE
+        if 'mag.BSNf' in self.meta and np.isnan(self.meta['mag.BSNf']):
+            self.usable = False
+        if 'mag.RSNf' in self.meta and np.isnan(self.meta['mag.RSNf']):
+            self.usable = False
 
     @property
     def path(self):

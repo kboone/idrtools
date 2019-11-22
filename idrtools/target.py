@@ -311,6 +311,9 @@ class Target(object):
                     'zpsys': 'ab',
                 })
 
+        if len(data) == 0:
+            return None
+
         data = Table(data)
 
         # Apply a correction to the error. Currently in the SNf pipeline, the
@@ -338,13 +341,18 @@ class Target(object):
 
         photometry = self.get_photometry(filters)
 
+        if photometry is None:
+            return None
+
         model = sncosmo.Model(source='salt2')
 
         # Note, everything has been shifted to restframe. The times have been
         # shifted using the previously estimated day of maximum to get to 0.
-
         model.set(z=0.)
         model.set(t0=0.)
+
+        # With the given scale, we expect to have x0 values around 10**4
+        model.set(x0=1.5e4)
 
         if use_previous_start:
             # Start at the result of the previous SALT2 fit.
@@ -370,7 +378,7 @@ class Target(object):
             sncosmo.plot_lc(photometry, model=fitted_model,
                             errors=result.errors)
 
-        result_dict = {
+        self.salt_fit = {
             't0': fitted_model['t0'],
             'x0': fitted_model['x0'],
             'x1': fitted_model['x1'],
@@ -387,4 +395,4 @@ class Target(object):
             'full_result': result
         }
 
-        return result_dict
+        return self.salt_fit
