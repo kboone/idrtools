@@ -11,6 +11,7 @@ except ImportError:
 
 from .spectrum import IdrSpectrum, Spectrum
 from .tools import InvalidMetaDataException, IdrToolsException
+from .math import nmad
 
 
 class Target(object):
@@ -53,6 +54,9 @@ class Target(object):
         all_spectra = sorted(all_spectra, key=lambda spectrum: spectrum.phase)
 
         self.all_spectra = np.array(all_spectra)
+
+        # Initialize other parameters that are used by other functions.
+        self.salt_fit = None
 
     @property
     def name(self):
@@ -109,6 +113,11 @@ class Target(object):
         """Return the time to use as a reference for this object."""
         return self.meta['idrtools.reference_time']
 
+    @reference_time.setter
+    def reference_time(self, value):
+        """Set the time to use as a reference for this object."""
+        self.meta['idrtools.reference_time'] = value
+
     @property
     def redshift_helio(self):
         """Return the heliocentric redshift."""
@@ -118,11 +127,6 @@ class Target(object):
     def redshift_cmb(self):
         """Return the CMB-centric redshift."""
         return self.meta['host.zcmb']
-
-    @reference_time.setter
-    def reference_time(self, value):
-        """Set the time to use as a reference for this object."""
-        self.meta['idrtools.reference_time'] = value
 
     @property
     def phases(self):
@@ -333,7 +337,7 @@ class Target(object):
         return data
 
     def fit_salt(self, filters='BVR', plot=False, use_previous_start=False,
-                 start_vals={}):
+                 start_vals={}, update_reference_time=True):
         if sncosmo is None:
             raise IdrToolsException(
                 "sncosmo not found. Install sncosmo for fitting"
@@ -374,9 +378,27 @@ class Target(object):
             modelcov=True,
         )
 
+        # Evaluate the residuals
+        photometry['mag'] = -2.5 * np.log10(photometry['flux'])
+        model_flux = fitted_model.bandflux(
+            photometry['band'], photometry['time'], photometry['zp'],
+            photometry['zpsys']
+        )
+        model_flux[model_flux == 0.] = np.nan
+        photometry['model_flux'] = model_flux
+        photometry['model_mag'] = -2.5*np.log10(model_flux)
+        photometry['residuals'] = photometry['mag'] - photometry['model_mag']
+
         if plot:
-            sncosmo.plot_lc(photometry, model=fitted_model,
-                            errors=result.errors)
+            sncosmo.plot_lc(photometry, model=fitted_model, errors=result.errors)
+
+        # Calculate the updated reference time.
+        new_reference_time = (
+            self.reference_time
+            + fitted_model['t0'] * (1 + self.redshift_helio)
+        )
+        if update_reference_time:
+            self.reference_time = new_reference_time
 
         self.salt_fit = {
             't0': fitted_model['t0'],
@@ -392,7 +414,100 @@ class Target(object):
             'covariance': result['covariance'],
             'cov_parameters': result['vparam_names'],
             'fitted_model': fitted_model,
-            'full_result': result
+            'full_result': result,
+
+            'photometry': photometry,
+            'new_reference_time': new_reference_time,
         }
 
         return self.salt_fit
+
+    def has_valid_salt_fit(self, verbose=False):
+        """Check if the SALT2 fit for this light curve is valid.
+
+        We use the SNfactory pipeline definition of "valid" with the following
+        requirements:
+        - At least five spectra total.
+        - At least four spectra with phases between -10 < t < 35 days.
+        - At least one spectrum with -10 < t < 7 days.
+        - At least one spectrum with 7 < t < 20 days.
+        - Measurements in at least two different synthetic filters with -8 < t < 10
+          days.
+        - NMAD of the SALT2 residuals less than 0.12 mag.
+        - No more than 20% of the residuals are "outliers" with an amplitude of more
+          than 0.2 mag.
+
+        Returns
+        -------
+        is_valid : bool
+            True if the SALT2 fit passes the selection criteria, False otherwise.
+        """
+        # No SALT2 fit available, so there isn't a valid one. Note that for some
+        # targets, there are no valid spectra so fit_salt() returns None. This handles
+        # that.
+        if self.salt_fit is None:
+            return False
+
+        # Get the phases of each spectrum relative to the fitted time of maximum light.
+        used_photometry = self.salt_fit['photometry']
+        times = used_photometry['time'] - self.salt_fit['t0']
+        unique_times = np.unique(times)
+
+        count = len(unique_times)
+        if count < 5:
+            if verbose:
+                print("Failed cut: At least 5 spectra total (%d)." % count)
+            return False
+
+        count = np.sum((unique_times > -10) & (unique_times < 35))
+        if count < 4:
+            if verbose:
+                print("Failed cut: At least 4 spectra with -10 < t < 35 days (%d)."
+                      % count)
+            return False
+
+        # 
+        count = np.sum((unique_times > -10) & (unique_times < 7))
+        if count == 0:
+            if verbose:
+                print("Failed cut: At least one spectrum with -10 < t < 7 days (%d)."
+                      % count)
+            return False
+
+        count = np.sum((unique_times > 7) & (unique_times < 20))
+        if count == 0:
+            if verbose:
+                print("Failed cut: At least one spectrum with 7 < t < 20 days (%d)."
+                      % count)
+            return False
+
+        cut = (times > -8) & (times < 10)
+        unique_bands = np.unique(used_photometry[cut]['band'])
+        count = len(unique_bands)
+        if count < 2:
+            if verbose:
+                print("Failed cut: Measurements in at least two different synthetic "
+                      "filters with -8 < t < 10 days (%d)." % count)
+            return False
+
+        # Only consider residuals where we have a valid SALT2 model.
+        residuals = used_photometry['residuals']
+        residuals = residuals[~np.isnan(residuals)]
+
+        if nmad(residuals) > 0.12:
+            if verbose:
+                print("Failed cut: NMAD of the SALT2 residuals less than 0.12 mag"
+                      "(%.2f mag)" % nmad(residuals))
+            return False
+
+        frac = np.sum(np.abs(residuals > 0.2)) / len(residuals)
+        if frac > 0.2:
+            if verbose:
+                print("Failed cut: No more than 20% of residuals > 0.2 mag (%d%%)." %
+                      int(100*frac))
+            return False
+
+        # Made it through the gauntlet!
+        if verbose:
+            print("SALT2 fit is valid.")
+        return True

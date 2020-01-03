@@ -243,11 +243,17 @@ class Dataset(object):
         with open(path, 'wb') as pickle_file:
             pickle.dump(salt_fits, pickle_file)
 
-    def load_salt_fits(self, path=None):
+    def load_salt_fits(self, path=None, update_reference_times=True):
         """Load the SALT2 fits for this dataset.
 
-        If path is not specified, then a default path is used in the original IDR
-        directory.
+        Parameters
+        ----------
+        path : str
+            The path to where the SALT2 fits are stored. If path is not specified, then
+            a default path is used in the original IDR directory.
+        update_reference_times : bool
+            If True (default), the reference times will be updated for each light curve
+            to match the values from the SALT2 fits.
         """
         if path is None:
             path = os.path.join(self.idr_directory, 'idrtools_salt_fits.pkl')
@@ -262,3 +268,6 @@ class Dataset(object):
 
         for target in self.targets:
             target.salt_fit = salt_fits[target.name]
+
+            if update_reference_times and target.salt_fit is not None:
+                target.reference_time = target.salt_fit['new_reference_time']
