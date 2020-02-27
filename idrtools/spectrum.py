@@ -253,13 +253,13 @@ def _parse_flux_information(data_dict):
 
 class Spectrum(object):
     def __init__(self, meta={}, target=None, name='Unknown Spectrum', time=None,
-                 **data_dict):
+                 restframe=True, **data_dict):
         """Initialize the spectrum.
 
         Data can be optionally passed in with a variety of keywords.
         """
         self.meta = self._get_default_meta(
-            name=name, time=time,
+            name=name, time=time, restframe=restframe,
         )
         self.meta.update(meta)
 
@@ -268,7 +268,7 @@ class Spectrum(object):
 
         self.target = target
 
-    def _get_default_meta(self, name, time):
+    def _get_default_meta(self, name, time, restframe):
         """Default meta for a new spectrum"""
         meta = {}
 
@@ -276,10 +276,12 @@ class Spectrum(object):
         # of this class to physical values in the meta.
         meta['idrtools.keys.name'] = 'idrtools.name'
         meta['idrtools.keys.time'] = 'idrtools.time'
+        meta['idrtools.keys.restframe'] = 'idrtools.restframe'
 
         # Default keys
         meta['idrtools.name'] = name
         meta['idrtools.time'] = time
+        meta['idrtools.restframe'] = restframe
 
         return meta
 
@@ -444,6 +446,10 @@ class Spectrum(object):
         phase = (time - reference_time) / (1 + redshift)
 
         return phase
+
+    @property
+    def restframe(self):
+        return self.meta[self.meta['idrtools.keys.restframe']]
 
     @property
     def target_name(self):
@@ -925,8 +931,9 @@ class Spectrum(object):
 
 
 class IdrSpectrum(Spectrum):
-    def __init__(self, idr_directory, meta, target, load_both_headers=False):
-        super(IdrSpectrum, self).__init__(meta, target)
+    def __init__(self, idr_directory, meta, target, load_both_headers=False,
+                 restframe=True):
+        super(IdrSpectrum, self).__init__(meta, target, restframe=restframe)
 
         # Lazy load the wave and flux when we actually use them. This makes
         # things a lot faster.
@@ -989,8 +996,13 @@ class IdrSpectrum(Spectrum):
     def path(self):
         """Find the path to the file"""
         if self.target.redshift_helio > 0:
-            # Supernova, get the rest frame spectrum.
-            key = 'idr.spec_restframe'
+            # Extragalactic object
+            if self.restframe:
+                # Get the restframe spectrum.
+                key = 'idr.spec_restframe'
+            else:
+                # Get the original merged spectrum.
+                key = 'idr.spec_merged'
         else:
             # Star, get the original spectrum.
             key = 'idr.spec_merged'

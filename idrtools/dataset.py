@@ -14,7 +14,7 @@ class Dataset(object):
         self.meta = meta
 
     @classmethod
-    def from_idr(cls, idr_directory, load_both_headers=False):
+    def from_idr(cls, idr_directory, load_both_headers=False, restframe=True):
         with open('%s/META.pkl' % (idr_directory,), 'rb') as idr_file:
             idr_meta = pickle.load(idr_file)
 
@@ -23,7 +23,8 @@ class Dataset(object):
         for target_name, target_meta in idr_meta.items():
             try:
                 target = Target(idr_directory, target_meta,
-                                load_both_headers=load_both_headers)
+                                load_both_headers=load_both_headers,
+                                restframe=restframe)
                 all_targets.append(target)
             except InvalidMetaDataException:
                 # The IDR contains weird entries sometimes (eg: a key of
@@ -216,7 +217,7 @@ class Dataset(object):
 
         return None
 
-    def do_salt_fits(self, path=None, overwrite=False):
+    def do_salt_fits(self, path=None, save=True, overwrite=False):
         """Redo all of the SALT2 fits for this dataset.
 
         The fits are written out to path. If path is not specified, then the fits are
@@ -225,7 +226,7 @@ class Dataset(object):
         if path is None:
             path = os.path.join(self.idr_directory, 'idrtools_salt_fits.pkl')
 
-        if os.path.exists(path) and not overwrite:
+        if save and os.path.exists(path) and not overwrite:
             raise IdrToolsException("SALT2 fits already exist at %s! Not overwriting!" %
                                     path)
 
@@ -240,8 +241,9 @@ class Dataset(object):
         for target in tqdm(self.targets):
             salt_fits[target.name] = target.fit_salt()
 
-        with open(path, 'wb') as pickle_file:
-            pickle.dump(salt_fits, pickle_file)
+        if save:
+            with open(path, 'wb') as pickle_file:
+                pickle.dump(salt_fits, pickle_file)
 
     def load_salt_fits(self, path=None, update_reference_times=True):
         """Load the SALT2 fits for this dataset.

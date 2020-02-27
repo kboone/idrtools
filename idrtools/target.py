@@ -6,7 +6,7 @@ try:
     import sncosmo
 except ImportError:
     # sncosmo is required for fitting, but I don't always have it installed.
-    # Just error out if the fit is called. in that case.
+    # Just error out if the fit is called in that case.
     sncosmo = None
 
 from .spectrum import IdrSpectrum, Spectrum
@@ -15,9 +15,10 @@ from .math import nmad
 
 
 class Target(object):
-    def __init__(self, idr_directory, meta, load_both_headers=False):
+    def __init__(self, idr_directory, meta, load_both_headers=False, restframe=True):
         self.idr_directory = idr_directory
         self.meta = meta
+        self.restframe = restframe
 
         # Load the spectra
         try:
@@ -31,7 +32,8 @@ class Target(object):
 
         for exposure, exposure_data in spectra_dict.items():
             spectrum = IdrSpectrum(idr_directory, exposure_data, self,
-                                   load_both_headers=load_both_headers)
+                                   load_both_headers=load_both_headers,
+                                   restframe=restframe)
 
             if spectrum is None:
                 continue
@@ -293,7 +295,7 @@ class Target(object):
         plt.ylabel('Magnitude + offset')
         plt.title(self)
 
-    def get_photometry(self, filters='BVR', **kwargs):
+    def get_photometry(self, filters='BVR', zeropoint=0., **kwargs):
         data = []
         for spectrum in self.spectra:
             for filter_name in filters:
@@ -301,16 +303,19 @@ class Target(object):
                     filter_name, calculate_error=True, **kwargs
                 )
 
-                # We are fitting with restframe data in the restframe. We use the
-                # initial SALT2 fit for the date of maximum and phases, so the peak of
-                # the LC should be close to 0 (although we don't include corrections for
-                # B-max).
-                time = spectrum.phase
+                if self.restframe:
+                    # We are fitting with restframe data in the restframe. We use the
+                    # initial SALT2 fit for the date of maximum and phases, so the peak
+                    # of the LC should be close to 0 (although we don't include
+                    # corrections for B-max).
+                    time = spectrum.phase
+                else:
+                    # We are fitting with the original data in observer frame. Use the
+                    # MJD as the time directly since we don't need to worry about time
+                    # dilation.
+                    time = spectrum.time
 
-                scaling = -20.
-                zeropoint = 0.
-
-                total_scale = 10**(-0.4 * (zeropoint + scaling))
+                total_scale = 10**(-0.4 * zeropoint)
 
                 data.append({
                     'time': time,
@@ -354,15 +359,35 @@ class Target(object):
         if photometry is None:
             return None
 
-        model = sncosmo.Model(source='salt2')
+        model = sncosmo.Model(
+            source='salt2',
+            effects=[sncosmo.CCM89Dust()],
+            effect_names=['mw'],
+            effect_frames=['obs'],
+        )
 
-        # Note, everything has been shifted to restframe. The times have been
-        # shifted using the previously estimated day of maximum to get to 0.
-        model.set(z=0.)
-        model.set(t0=0.)
+        if self.restframe:
+            # Everything has been shifted to restframe. The times have been shifted
+            # using the previously estimated day of maximum to get to 0. The spectra are
+            # also dereddened.
+            reference_time = 0.
+            redshift = 0.
+            mwebv = 0.
+        else:
+            # Observer frame fit. We use the CMB redshift, and the previous SALT2 fit as
+            # a guess for the reference time. We also need to take the Milky Way dust
+            # into account.
+            reference_time = self.reference_time
+            redshift = self.redshift_cmb
+            mwebv = self.meta['target.mwebv']
 
-        # With the given scale, we expect to have x0 values around 10**4
-        model.set(x0=1.5e4)
+        model.set(t0=reference_time)
+        model.set(z=redshift)
+        model.set(mwebv=mwebv)
+
+        # Start with a rough estimate of the scale.
+        x0_guess = 1e5 * np.mean(photometry['flux'])
+        model.set(x0=x0_guess)
 
         if use_previous_start:
             # Start at the result of the previous SALT2 fit.
@@ -378,7 +403,7 @@ class Target(object):
             bounds={
                 'x1': (-10, 10),
                 'c': (-1, 10),
-                't0': (-5, 5),
+                't0': (reference_time - 5, reference_time + 5),
             },
             guess_t0=False,
             modelcov=True,
@@ -399,10 +424,16 @@ class Target(object):
             sncosmo.plot_lc(photometry, model=fitted_model, errors=result.errors)
 
         # Calculate the updated reference time.
-        new_reference_time = (
-            self.reference_time
-            + fitted_model['t0'] * (1 + self.redshift_helio)
-        )
+        if self.restframe:
+            # For restframe fits, need to take time dilation into account.
+            new_reference_time = (
+                self.reference_time
+                + fitted_model['t0'] * (1 + self.redshift_helio)
+            )
+        else:
+            # For observer frame fits, the reference time is just the MJD at peak.
+            new_reference_time = fitted_model['t0']
+
         if update_reference_time:
             self.reference_time = new_reference_time
 
