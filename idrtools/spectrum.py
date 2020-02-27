@@ -825,7 +825,7 @@ class Spectrum(object):
             modifications
         )
 
-    def plot(self, show_error=False, offset=0., **kwargs):
+    def plot(self, show_error=False, offset=0., f_nu=False, **kwargs):
         """Plot the spectrum.
 
         If show_error is True, an error snake is also plotted.
@@ -835,7 +835,16 @@ class Spectrum(object):
         from matplotlib import pyplot as plt
 
         wave = self.wave
-        flux = self.flux + offset
+
+        if f_nu:
+            # Convert to f_nu before plotting (with an arbitrary overall scale)
+            flux = self.flux * self.wave**2 / 5000**2
+        else:
+            flux = self.flux
+
+        # Add in the offset
+        flux = flux + offset
+
         plt.plot(wave, flux, **kwargs)
 
         if show_error:
