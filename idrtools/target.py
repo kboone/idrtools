@@ -241,7 +241,7 @@ class Target(object):
         return self.get_interpolated_spectra(interpolator_name, [phase],
                                              wave)[0]
 
-    def plot(self, show_error=False, **kwargs):
+    def plot(self, show_error=False, offset_factor=1, f_nu=False, **kwargs):
         """Plot the spectrum.
 
         If show_error is True, an error snake is also plotted.
@@ -249,17 +249,23 @@ class Target(object):
         Any kwargs are passed to plt.plot.
         """
         spectra = self.spectra
-        spectra = [i.bin_by_velocity(2000) for i in spectra]
+        all_wave = [i.wave for i in spectra]
 
-        min_wave = np.min([i.wave for i in spectra])
-        max_wave = np.max([i.wave for i in spectra])
+        min_wave = np.min(all_wave)
+        max_wave = np.max(all_wave)
 
-        all_flux = [i.flux for i in spectra]
-        offset_scale = np.percentile(np.abs(all_flux), 80) * 2.
+        if f_nu:
+            # Convert to f_nu before plotting (with an arbitrary overall scale)
+            all_flux = [i.flux * i.wave**2 / 5000**2 for i in spectra]
+        else:
+            all_flux = [i.flux for i in spectra]
+
+        offset_scale = np.percentile(np.abs(all_flux), 80) * 2. * offset_factor
 
         for i, spectrum in enumerate(self.spectra):
             spectrum.plot(
-                offset=i*offset_scale
+                offset=i*offset_scale,
+                f_nu=f_nu
             )
             plt.text(
                 1.01*max_wave,
