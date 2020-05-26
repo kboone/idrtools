@@ -276,7 +276,10 @@ class Target(object):
             )
             plt.xlim(min_wave, 1.15*max_wave)
 
-        plt.xlabel('Restframe wavelength ($\\AA$)')
+        if self.restframe:
+            plt.xlabel('Restframe wavelength ($\\AA$)')
+        else:
+            plt.xlabel('Wavelength ($\\AA$)')
         plt.ylabel('Flux + offset')
         plt.title(self)
 
@@ -309,13 +312,21 @@ class Target(object):
                     # of the LC should be close to 0 (although we don't include
                     # corrections for B-max).
                     time = spectrum.phase
+
+                    # The restframe spectra were scaled by 1e15, or an offset of -37.5
+                    # mag. Take that out so that we can get photometry with a consistent
+                    # scale from restframe/observer frame spectra. Otherwise, things
+                    # like SALT2 fits break horribly by default since they run into all
+                    # sorts of weird precision errors.
+                    scale = -37.5
                 else:
                     # We are fitting with the original data in observer frame. Use the
                     # MJD as the time directly since we don't need to worry about time
                     # dilation.
                     time = spectrum.time
+                    scale = 0.
 
-                total_scale = 10**(-0.4 * zeropoint)
+                total_scale = 10**(-0.4 * (zeropoint + scale))
 
                 data.append({
                     'time': time,
