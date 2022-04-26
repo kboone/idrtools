@@ -462,7 +462,7 @@ def bootstrap_statistic(statistic, vals, *args, num_resamples=10000, **kwargs):
     return stat, stat_err
 
 
-def hessian_to_covariance(hessian):
+def hessian_to_covariance(hessian, valid_parameter_mask=None):
     """Safely invert a Hessian matrix to get a covariance matrix.
 
     Sometimes, parameters can have wildly different scales from each other. What we
@@ -470,7 +470,14 @@ def hessian_to_covariance(hessian):
     parameter rather than the absolute precision. In that case, we can normalize the
     Hessian prior to inverting it, and then renormalize afterwards. This deals with the
     problem of varying scales of parameters gracefully.
+
+    If valid_parameter_mask is given, then the parameters whose values are False in
+    the mask are ignored, and their variance is set to -1 with a covariance of 0 with
+    every other parameter.
     """
+    if valid_parameter_mask is not None:
+        hessian = hessian[valid_parameter_mask][:, valid_parameter_mask]
+
     # Choose scales to set the diagonal of the hessian to 1.
     scales = np.sqrt(np.diag(hessian))
     norm_hessian = hessian / np.outer(scales, scales)
@@ -481,11 +488,18 @@ def hessian_to_covariance(hessian):
     # Add the scales back in.
     covariance = inv_norm_hessian / np.outer(scales, scales)
 
+    if valid_parameter_mask is not None:
+        full_cov = -1. * np.eye(len(valid_parameter_mask))
+        valid_mask_2d = np.outer(valid_parameter_mask, valid_parameter_mask)
+        full_cov[valid_mask_2d] = covariance.flat
+        covariance = full_cov
+
     return covariance
 
 
 def calculate_covariance_finite_difference(negative_log_likelihood, parameter_names,
-                                           values, bounds, verbose=False):
+                                           values, bounds, verbose=False,
+                                           allow_no_effect=False):
     """Estimate the covariance of the parameters of negative log likelihood function
     numerically.
 
@@ -516,6 +530,9 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
         the maximum bound.
     verbose : bool
         If True, output diagnostic messages. Default: False
+    allow_no_effect : bool
+        If True, keep parameters that don't affect the model. Their variance will be
+        set to -1. If False, an exception will be raised.
     """
     # The three terms here are the corresponding weight, the sign of e1 and
     # the sign of e2.
@@ -537,6 +554,8 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
     # and then bisect to find the right value.
     steps = []
     ref_likelihood = negative_log_likelihood(values)
+
+    valid_parameter_mask = np.ones(num_variables, dtype=bool)
 
     for parameter_idx in range(len(parameter_names)):
         step = 1e-5
@@ -607,17 +626,24 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
                     step = (step + min_step) / 2.
                 else:
                     step = step / 2.
-            elif step > 1e9:
-                # Shouldn't need steps this large. This only happens if one
-                # parameter doesn't affect the model at all, in which case we
-                # can't calculate the covariance.
-                raise IdrToolsMathException(
-                    "Parameter %s doesn't appear to affect the model! Cannot "
-                    "estimate the covariance." % parameter_names[parameter_idx]
-                )
             else:
                 # Good step size, we're done.
                 break
+
+            if step > 1e9:
+                # Shouldn't need steps this large. This only happens if one
+                # parameter doesn't affect the model at all, in which case we
+                # can't calculate the covariance.
+                message = ("Parameter %s doesn't appear to affect the model! Cannot "
+                           "estimate its covariance." % parameter_names[parameter_idx])
+                if allow_no_effect:
+                    if verbose:
+                        print(f"WARNING: {message}")
+                    valid_parameter_mask[parameter_idx] = False
+                    step = 0.
+                    break
+                else:
+                    raise IdrToolsMathException(message)
 
         steps.append(step)
 
@@ -627,29 +653,25 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
 
     difference_matrices = []
 
-    # If we are too close to a boundary, shift the center position by the step
-    # size. This isn't technically right, but we can't evaluate past bounds or
-    # we run into major issues with parameters that have real physical bounds
-    # (eg: airmass below 1.)
-    original_values = values
-    values = original_values.copy()
+    # If we are too close to a bound, then we can't calculate the covariance.
     for parameter_idx in range(len(parameter_names)):
-        name = parameter_names[parameter_idx]
         min_bound, max_bound = bounds[parameter_idx]
         value = values[parameter_idx]
         step = steps[parameter_idx]
 
-        direction_str = None
-        if min_bound is not None and value - 2*step < min_bound:
-            direction_str = "up"
-            values[parameter_idx] = min_bound + 2*step
-        elif max_bound is not None and value + 2*step > max_bound:
-            direction_str = "down"
-            values[parameter_idx] = max_bound - 2*step
-
-        if direction_str is not None and verbose:
-            print("WARNING: Parameter %s is at bound! Moving %s by %g to "
-                  "calculate covariance!" % (name, direction_str, 2*step))
+        if ((min_bound is not None and value - 2*step < min_bound)
+            or (max_bound is not None and value + 2*step > max_bound)):
+            # Step would cross the bound.
+            message = (
+                f"WARNING: Parameter {parameter_names[parameter_idx]} is too close to "
+                f"bound! Cannot estimate its covariance."
+            )
+            if allow_no_effect:
+                if verbose:
+                    print(f"WARNING: {message}")
+                valid_parameter_mask[parameter_idx] = False
+            else:
+                raise IdrToolsMathException(message)
 
     # Calculate all of the terms that will be required to calculate the finite
     # differences. Note that there is a lot of reuse of terms, so here we
@@ -661,6 +683,9 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
             for j in range(num_variables):
                 if i > j:
                     # Symmetric
+                    continue
+
+                if not (valid_parameter_mask[i] and valid_parameter_mask[j]):
                     continue
 
                 step_values = values.copy()
@@ -679,6 +704,9 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
             if i > j:
                 continue
 
+            if not (valid_parameter_mask[i] and valid_parameter_mask[j]):
+                continue
+
             val = 0.
 
             for (weight, sign_e1, sign_e2), matrix in \
@@ -692,13 +720,13 @@ def calculate_covariance_finite_difference(negative_log_likelihood, parameter_na
 
     # Invert the Hessian to get the covariance matrix
     try:
-        cov = hessian_to_covariance(hessian)
+        cov = hessian_to_covariance(hessian, valid_parameter_mask)
     except LinAlgError:
         raise IdrToolsMathException("Covariance matrix is not well defined!")
 
     variance = np.diag(cov)
 
-    if np.any(variance < 0):
+    if np.any(variance[valid_parameter_mask] < 0):
         raise IdrToolsMathException("Covariance matrix is not well defined! "
                                     "Found negative variances.")
 
